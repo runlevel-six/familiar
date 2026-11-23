@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+# A6: the same pod under runc, for comparison (apply after probe.yaml).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: runc-probe
+  namespace: kata-test
+spec:
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+  - name: probe
+    image: docker.io/library/busybox:1.37.0
+    command: ["sh", "-c", "uname -r; nproc; grep MemTotal /proc/meminfo; sleep 3600"]
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities: {drop: ["ALL"]}
+    resources:
+      requests: {cpu: 250m, memory: 128Mi}
+      limits: {cpu: 250m, memory: 128Mi}

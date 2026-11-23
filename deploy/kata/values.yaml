@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+# kata-deploy Helm values (A6): one shim, one default RuntimeClass named "kata".
+# Chart: oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy 4.3.1
+#   (chart digest sha256:8eab352a59b42dc7b3aebe87d4114b936a8576967d4800047ce708fcebb61d2e, 2026-10-21).
+# 4.3.1 rather than 4.4.0: releases are used only once they're two weeks old.
+# The two charts render identically apart from the kata-deploy image; 4.4.0's
+# changes are runtime-rs fixes plus a containerd drop-in mtime guard.
+# Every image is pinned by digest (T8); the chart's kubectl image would
+# otherwise be quay.io/kata-containers/kubectl:latest, rebuilt weekly.
+deploymentMode: job           # no always-on privileged component
+k8sDistribution: k8s          # kubeadm: containerd config in /etc/containerd
+imagePullPolicy: IfNotPresent
+image:
+  tag: "4.3.1@sha256:7399058e3e6378a766770345abcf9b20b53611a419b1b56e71162c6ac1bf625a"
+kubectlImage:
+  tag: "latest@sha256:65965693c9cf2cbf5cde1837e90ce240b54c626e947defe8bd4deb97af9a825c"   # the 2026-11-08 build
+job:
+  dispatcherImage:
+    tag: "0.3.0@sha256:b2540bc9c85d52c4ad96b82d4b2579d2169069f2f77725df50e0278373c1927e"
+shims:
+  disableAll: true
+  qemu-runtime-rs:            # the 4.x default (Rust runtime + QEMU)
+    enabled: true
+    # runtimeClass:
+    #   overhead: {memory: "320Mi", cpu: "250m"}   # measured 2026-11-23: ~166Mi steady (30 min),
+    #                                                # so the chart default is kept
+defaultShim:
+  amd64: qemu-runtime-rs
+runtimeClasses:
+  enabled: true
+  createDefault: true         # adds RuntimeClass "kata" -> handler kata-qemu-runtime-rs
+  defaultName: kata
+  overheadEnabled: true       # chart default for qemu-runtime-rs: podFixed 320Mi / 250m

@@ -56,6 +56,27 @@ What that taught:
 6. **Raw-IP connections are blocked.** Only addresses learned from allowed DNS
    answers work, and only on the allowed ports.
 
+## Kata VMs and Service addresses
+
+Hermes runs in a Kata Containers VM, which has its own kernel. With Cilium's
+kube-proxy replacement, Cilium can translate a Service's ClusterIP to a pod
+address at the socket level, inside the host kernel, when a connection is
+opened. Connections from inside the VM never pass through those hooks, so the
+VM's packets leave with the ClusterIP untranslated. On the author's cluster that
+meant DNS to the CoreDNS ClusterIP was answered by a resolver on the LAN (with
+NXDOMAIN for every cluster name), and the API server's ClusterIP timed out.
+
+The fix is Cilium's `socketLB.hostNamespaceOnly=true`: socket-level translation
+for host processes only, and per-packet translation at the pod's interface for
+every pod, VM or not. Two things worth knowing:
+
+- Cilium's `cilium-config` ConfigMap said `bpf-lb-sock: "false"` while the agent
+  had socket load balancing enabled for pods. `cilium-dbg status --verbose` is
+  the source of truth.
+- Under default-deny policies, untranslated packets are dropped rather than
+  leaking, so the failure shows up as a broken agent, not a quiet leak. The FQDN
+  egress test passes under Kata exactly as under runc.
+
 ## Beyond the cluster network
 
 Two paths leave the cluster without crossing a network policy, and both are

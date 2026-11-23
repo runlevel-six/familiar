@@ -47,7 +47,9 @@ spec:
       automountServiceAccountToken: false
       enableServiceLinks: false
       priorityClassName: familiar-low
-      # runtimeClassName: kata # A6: enable once the kata RuntimeClass exists (needs D15's reboot)
+      # A6: a Kata VM. The memory limit below is also the VM's RAM (the guest kernel takes
+      # about 60 MiB of it); the RuntimeClass adds 250m/320Mi pod overhead, counted by the quota.
+      runtimeClassName: kata
       dnsConfig: {options: [{name: ndots, value: "1"}]} # strict-DNS CNP: only FQDNs resolve (A5)
       securityContext:
         runAsNonRoot: true

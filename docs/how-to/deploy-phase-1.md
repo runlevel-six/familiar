@@ -21,9 +21,15 @@ The cluster needs:
   Element Server Suite's `ess-synapse` Service in a `matrix` namespace), with a
   bot account and its access token. Enforce encryption on the server:
   `encryption_enabled_by_default_for_room_type: all`.
-- **Kata Containers**, if you want Hermes in a VM. Without a `kata`
-  RuntimeClass, leave `runtimeClassName` commented out in
-  `hermes/deployment.yaml`.
+- **Kata Containers** with a `kata` RuntimeClass: Hermes runs in a VM. If your
+  Cilium uses kube-proxy replacement, set `socketLB.hostNamespaceOnly=true`
+  first: otherwise Cilium translates Service addresses only for connections made
+  in the host's kernel, and a Kata VM, with its own kernel, can't reach any
+  Service. Check with `cilium-dbg status --verbose` ("Socket LB Coverage:
+  Hostns-only"); the `cilium-config` ConfigMap isn't reliable for this. Without
+  Kata, remove `runtimeClassName` from `hermes/deployment.yaml`. Under Kata, a
+  pod's memory limit is also its VM's RAM, so leave headroom above what the
+  process uses.
 - An Anthropic API workspace with a monthly spend limit and a key for the
   `watch-officer` role.
 
