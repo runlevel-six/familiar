@@ -121,9 +121,10 @@ Don't trust an apply; check each boundary.
   longer in a VM: it needs a `timeoutSeconds` well above Kubernetes' 1 s default.
 - Kata may report a probe kill as "OOMKilled" with exit code 0. Check the pod's
   `memory.events` before believing it.
-- Hermes' side tasks (titles, compression) need `model.api_mode:
-  anthropic_messages` in its config, or they call `/chat/completions`, which
-  model-gate refuses.
+- Hermes' side tasks (titles, compression) need `api_mode: anthropic_messages`
+  in the provider entry, next to `transport`: their client reads only
+  `api_mode`, and otherwise calls `/chat/completions`, which model-gate refuses.
+  (`model.api_mode` doesn't help.)
 - Hermes warns about low disk whenever under 2 GiB is free, so its volume is
   4 GiB.
 - Growing `hermes-data` while memory-auditor mounts it read-only fails at the

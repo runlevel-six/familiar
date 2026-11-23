@@ -11,6 +11,10 @@ providers:
   model-gate:
     api: http://model-gate.familiar-system.svc.cluster.local:8081
     transport: anthropic_messages
+    # Same value under the other key: the main agent reads `api_mode or transport`,
+    # but the side-task client (titles, compression) reads only `api_mode` here and
+    # otherwise falls back to /chat/completions, which model-gate refuses.
+    api_mode: anthropic_messages
     models: [claude-sonnet-5-5, claude-haiku-5-5]
     context_length: 200000
     discover_models: false   # stops probing /api/tags, /props, /version etc.
@@ -18,10 +22,6 @@ providers:
 model:
   provider: custom:model-gate
   default: claude-sonnet-5-5
-  # Needed for the auxiliary tasks below: their client reads model.api_mode,
-  # not the provider's `transport`, and without it falls back to OpenAI-style
-  # /chat/completions, which model-gate refuses (found on deploy, 2026-11-23).
-  api_mode: anthropic_messages
 
 # Side tasks (titles, compression, approval classifier, MCP helper) go
 # through model-gate too ("main" = the main provider), on Haiku. "auto"
