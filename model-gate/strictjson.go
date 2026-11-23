@@ -22,7 +22,7 @@ import (
 // one of these only in case (including Unicode folding, e.g. "max_toKens"
 // with a Kelvin sign) is rejected wherever that object appears.
 var checkedFields = map[string][]string{
-	"top":      {"model", "max_tokens", "stream", "tools", "mcp_servers", "container", "fallbacks"},
+	"top":      {"model", "max_tokens", "stream", "tools", "mcp_servers", "container", "fallbacks", "system", "messages"},
 	"tool":     {"type", "name"},
 	"fallback": {"model"},
 }

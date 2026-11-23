@@ -74,6 +74,7 @@ and carry an `X-Model-Gate: rejected` header.
 | Body within `max_request_bytes` | 413 `request_too_large` |
 | Body is JSON | 400 `invalid_json` |
 | Body is unambiguous: valid UTF-8, no duplicate keys at any depth, no key that differs only in case from a field the gate checks | 400 `ambiguous_json` |
+| Every image and document block in `system` and `messages` (including inside `tool_result` content and content documents) has an inline source: `base64`, `text` or `content`. A `url` source makes the API fetch the URL from Anthropic's network; `file` reads the Files API. Other types are refused until allowed. `tool_use` input isn't inspected | 403 `source_not_allowed` |
 | `model` is in `models` (also for `count_tokens`) | 403 `model_not_allowed` |
 | `max_tokens` between 1 and the cap (after clamping, if on) | 400 `max_tokens_over_cap` |
 | Tools are custom, or their `type` matches `allowed_tool_types` | 403 `server_tool_not_allowed` for tools that reach the network from Anthropic's side (`web_search*`, `web_fetch*`, `code_execution*`, `mcp_toolset`), otherwise `tool_type_not_allowed` |

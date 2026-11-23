@@ -29,7 +29,7 @@ handles genuinely untrusted input, gets no tools and only structured output.
 | # | Threat | Primary control | Secondary control |
 |---|---|---|---|
 | T1 | Exfiltrate the model API key | The key exists only in model-gate, never in the agent's environment | Egress deny; a monthly spend limit on the API workspace |
-| T2 | Exfiltrate cluster data | Tools return redacted summaries; egress allowlist | Hubble flow audit; model-gate rejects server-side tools that would fetch from Anthropic's side |
+| T2 | Exfiltrate cluster data | Tools return redacted summaries; egress allowlist | Hubble flow audit; model-gate rejects server-side tools and URL content sources that would fetch from Anthropic's side |
 | T3 | Escalate in the cluster | No ServiceAccount token in the agent pod; tool servers hold narrow roles | RBAC excludes policy objects; cluster-read hides familiar's own namespaces |
 | T4 | Disable or change its own guardrails | No write path to `familiar-*` namespaces, RBAC or network policies | Guardrails live in this repository, which only the owner can merge to |
 | T5 | Persist an injection through memory | memory-auditor commits every memory change to a repo the agent can't reach; changes are reviewed | A restore procedure |
@@ -54,7 +54,9 @@ fetch, code execution, the MCP connector) make *Anthropic* reach the network on
 the caller's behalf, which would walk straight past the cluster's egress
 policy. So model-gate allows only custom tools unless a role opts in, and the
 list is an allowlist: a server-side tool Anthropic adds later is refused until
-someone decides it's safe. `anthropic-beta` headers are allowlisted per role for
+someone decides it's safe. Image and document blocks must carry their data
+inline: a `url` source would have the API fetch an address of the agent's
+choosing, with whatever it put in the query string. `anthropic-beta` headers are allowlisted per role for
 the same reason. Request bodies with duplicate or case-variant keys are
 rejected, because the gate's JSON parser and the API's could read them
 differently, and the gate would then check one request and forward another.

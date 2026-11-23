@@ -129,6 +129,10 @@ func (g *Gate) serve(role *Role, w http.ResponseWriter, req *http.Request) {
 			reject(rejection{http.StatusBadRequest, "ambiguous_json", "model-gate: ambiguous request body: " + err.Error()})
 			return
 		}
+		if err := checkSources(body); err != nil {
+			reject(rejection{http.StatusForbidden, "source_not_allowed", "model-gate: " + err.Error()})
+			return
+		}
 		rec.Model, rec.Stream, rec.MaxTokens = info.Model, info.Stream, info.MaxTokens
 		if isMessages && role.ClampMaxTokens && info.MaxTokens > role.MaxTokensPerRequest {
 			clamped, err := setMaxTokens(body, role.MaxTokensPerRequest)
