@@ -445,8 +445,8 @@ Switch one role to a non-Anthropic provider through model-gate. Purpose: separat
 
 ## 13. Milestones
 
-- [ ] M0 — Phase 0 complete (inventory, prereqs installed, Hermes questions answered)
-- [ ] M1 — Phase 1 deployed
+- [x] M0 — Phase 0 complete (2026-11-23) (inventory, prereqs installed, Hermes questions answered)
+- [x] M1 — Phase 1 deployed (2026-11-23)
 - [ ] M1.5 — Phase 1 exit criteria met + retro
 - [ ] M2 — Phase 2 exit criteria met
 - [ ] M3 — Phase 3 exit criteria met + notes for the email assistant
