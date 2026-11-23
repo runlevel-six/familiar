@@ -1,0 +1,24 @@
+{
+  "upstream": "https://api.anthropic.com",
+  "metrics_listen": ":9090",
+  "state_file": "/var/lib/model-gate/state.json",
+  "prices": {
+    "claude-opus-5-5":   {"input": 4.0, "output": 20.0, "cache_read": 0.20,  "cache_write_5m": 5.0,   "cache_write_1h": 8.0},
+    "claude-sonnet-5-5": {"input": 2.0, "output": 10.0, "cache_read": 0.10,  "cache_write_5m": 2.5,   "cache_write_1h": 4.0},
+    "claude-haiku-5-5":  {"input": 0.10, "output": 0.50, "cache_read": 0.01,  "cache_write_5m": 0.125, "cache_write_1h": 0.20,
+                          "long_context": {"over_prompt_tokens": 100000, "input": 0.50, "output": 2.50, "cache_read": 0.05, "cache_write_5m": 0.625, "cache_write_1h": 1.0}}
+  },
+  "roles": [
+    {
+      "name": "watch-officer",
+      "listen": ":8081",
+      "key_file": "/etc/model-gate/keys/watch-officer",
+      "models": ["claude-sonnet-5-5", "claude-haiku-5-5"],
+      "max_tokens_per_request": 32000,
+      "clamp_max_tokens": true,
+      "allowed_betas": ["interleaved-thinking-2025-05-14", "fine-grained-tool-streaming-2025-05-14"],
+      "hourly_usd": 1.0,
+      "daily_usd": 3.0
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# A5 policy under test: the shape model-gate will use (design §4.3).
+# DNS to kube-dns (through Cilium's DNS proxy, so it can learn names -> IPs),
+# HTTPS to api.anthropic.com only. Everything else is denied.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: fqdn-allowlist
+  namespace: a5-egress-test
+spec:
+  endpointSelector:
+    matchLabels: {app: probe}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - {port: "53", protocol: ANY}
+          rules:
+            dns:
+              - matchPattern: "*"
+    - toFQDNs:
+        - matchName: api.anthropic.com
+      toPorts:
+        - ports:
+            - {port: "443", protocol: TCP}

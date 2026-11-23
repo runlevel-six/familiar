@@ -1,0 +1,5 @@
+.claude/settings.local.json
+
+# Private: real deployment overlay, site runbooks, inventory, incidents,
+# denylist. Its own git repo, never pushed (see local/README.md).
+/local/

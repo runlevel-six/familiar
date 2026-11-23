@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# A5: FQDN egress test. Throwaway namespace and a curl pod; delete with
+#   kubectl delete ns a5-egress-test
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: a5-egress-test
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: probe
+  namespace: a5-egress-test
+  labels: {app: probe}
+spec:
+  automountServiceAccountToken: false
+  # Resolve names with a dot as absolute first, so DNS-allowlisted pods
+  # don't send search-domain variants that the DNS proxy refuses.
+  dnsConfig:
+    options:
+      - {name: ndots, value: "1"}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 100
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: curl
+      image: docker.io/curlimages/curl:8.11.1
+      command: ["sleep", "infinity"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+      resources:
+        requests: {cpu: 5m, memory: 16Mi}
+        limits: {memory: 64Mi}

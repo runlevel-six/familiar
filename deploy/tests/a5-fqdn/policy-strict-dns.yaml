@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# A5 variant: DNS answers only for the allowlisted name, so DNS can't be used
+# to resolve (or tunnel data through) arbitrary names. This is the shape to
+# use for model-gate.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: fqdn-allowlist
+  namespace: a5-egress-test
+spec:
+  endpointSelector:
+    matchLabels: {app: probe}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - {port: "53", protocol: ANY}
+          rules:
+            dns:
+              - matchName: api.anthropic.com
+              # Pods must use ndots:1 (see test-pod.yaml): with the default
+              # ndots:5 they try search-domain variants first, which this
+              # rule refuses, and resolvers like musl then give up. Note that
+              # "*" in matchPattern matches a single DNS label only.
+    - toFQDNs:
+        - matchName: api.anthropic.com
+      toPorts:
+        - ports:
+            - {port: "443", protocol: TCP}

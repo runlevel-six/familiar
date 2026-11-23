@@ -1,0 +1,111 @@
+# SPDX-License-Identifier: Apache-2.0
+# Hermes, the Phase 1 watch officer (design §4.1, §6). DRAFT, not applied.
+# Settings come from the local test (tests/hermes-local/README.md):
+#   - started directly as the image's own user (uid 10000): the image's default
+#     root start needs SETUID/SETGID/CHOWN, which restricted PSS forbids
+#   - read-only root filesystem; writable: the data volume, /run, /tmp
+#   - SOUL.md, scripts/, hooks/, plugins/, skills/ read-only (persistence
+#     points the agent must not change; it has no write tools anyway)
+#   - config.yaml copied in from the ConfigMap at every start (Hermes may
+#     rewrite it on migration, so it can't be mounted read-only)
+#   - no ServiceAccount token, no Service (nothing connects to Hermes)
+#
+# Before applying, create the Secret with the bot's MAS compatibility token
+# (local/deploy/matrix/README.md):
+#   kubectl -n familiar-agents create secret generic hermes-matrix \
+#     --from-literal=access-token="$(cat token-file)"   # no trailing newline!
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: hermes, namespace: familiar-agents}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: hermes-data, namespace: familiar-agents}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-block
+  resources: {requests: {storage: 2Gi}} # 5 MB after the local test; sessions and logs grow slowly
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes
+  namespace: familiar-agents
+  labels: {app.kubernetes.io/name: hermes}
+spec:
+  replicas: 1
+  strategy: {type: Recreate} # one writer for the data volume
+  selector: {matchLabels: {app.kubernetes.io/name: hermes}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hermes
+        familiar/role: watch-officer # selects the watch-officer-egress CNP
+    spec:
+      serviceAccountName: hermes
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      priorityClassName: familiar-low
+      # runtimeClassName: kata # A6: enable once the kata RuntimeClass exists (needs D15's reboot)
+      dnsConfig: {options: [{name: ndots, value: "1"}]} # strict-DNS CNP: only FQDNs resolve (A5)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: seed-config
+          image: docker.io/nousresearch/hermes-agent@sha256:3e9fe4c6ef36490f43aa0d0d80f9df64e9c92a576eee3042f1a97c8813c05355 # v0.23.3
+          command: ["sh", "-c", "cp /config/config.yaml /opt/data/config.yaml && chmod 640 /opt/data/config.yaml"]
+          volumeMounts:
+            - {name: data, mountPath: /opt/data}
+            - {name: config, mountPath: /config, readOnly: true}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 64Mi}}
+      containers:
+        - name: hermes
+          image: docker.io/nousresearch/hermes-agent@sha256:3e9fe4c6ef36490f43aa0d0d80f9df64e9c92a576eee3042f1a97c8813c05355 # v0.23.3
+          args: ["gateway", "run"]
+          env:
+            - {name: MATRIX_HOMESERVER, value: "http://ess-synapse.matrix.svc.cluster.local:8008"} # ESS: routes to the HAProxy pods in front of Synapse, never via Traefik (D21)
+            - {name: MATRIX_USER_ID, value: "@gideon:example.org"} # placeholder, set by the site overlay; permanent once created (D22)
+            - {name: MATRIX_DEVICE_ID, value: HERMES_BOT}
+            - {name: MATRIX_ALLOWED_USERS, value: "@owner:example.org"} # placeholder, set by the site overlay: only the owner (T9)
+            - {name: MATRIX_E2EE_MODE, value: required} # refuses to start without crypto; per-room encryption is enforced by Synapse (D21)
+            - {name: MATRIX_RECOVERY_KEY_OUTPUT_FILE, value: /opt/data/platforms/matrix/recovery-key.txt}
+            # - {name: MATRIX_HOME_ROOM, value: "!room:example.org"} # set in the site overlay after the owner's DM with the bot exists
+            - name: MATRIX_ACCESS_TOKEN
+              valueFrom: {secretKeyRef: {name: hermes-matrix, key: access-token}}
+          volumeMounts:
+            - {name: data, mountPath: /opt/data}
+            - {name: soul, mountPath: /opt/data/SOUL.md, subPath: SOUL.md, readOnly: true}
+            - {name: scripts, mountPath: /opt/data/scripts, readOnly: true}
+            - {name: empty, mountPath: /opt/data/hooks, readOnly: true}
+            - {name: empty, mountPath: /opt/data/plugins, readOnly: true}
+            - {name: empty, mountPath: /opt/data/skills, readOnly: true}
+            - {name: run, mountPath: /run}
+            - {name: tmp, mountPath: /tmp}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources:
+            requests: {cpu: 100m, memory: 512Mi} # ~360 MiB idle in the local test
+            limits: {memory: 1Gi}
+          startupProbe:
+            exec: {command: ["sh", "-c", "hermes gateway status >/dev/null 2>&1"]}
+            periodSeconds: 10
+            failureThreshold: 18
+          livenessProbe:
+            exec: {command: ["sh", "-c", "hermes gateway status >/dev/null 2>&1"]}
+            periodSeconds: 60
+            timeoutSeconds: 20
+            failureThreshold: 3
+      volumes:
+        - {name: data, persistentVolumeClaim: {claimName: hermes-data}}
+        - {name: config, configMap: {name: hermes-config, items: [{key: config.yaml, path: config.yaml}]}}
+        - {name: soul, configMap: {name: hermes-config, items: [{key: SOUL.md, path: SOUL.md}]}}
+        - {name: scripts, configMap: {name: hermes-scripts, defaultMode: 0444}}
+        - {name: empty, emptyDir: {sizeLimit: 1Mi}}
+        - {name: run, emptyDir: {medium: Memory, sizeLimit: 16Mi}}
+        - {name: tmp, emptyDir: {sizeLimit: 256Mi}}

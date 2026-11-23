@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: Apache-2.0
+# Design §4.4: familiar runs below every app on the node, so the kubelet
+# evicts it first under pressure, and it never preempts anything.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: familiar-low
+value: -100
+preemptionPolicy: Never
+globalDefault: false
+description: "familiar workloads: lowest priority on the node, never preempt."
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata: {name: quota, namespace: familiar-system}
+spec:
+  hard: {requests.cpu: 500m, requests.memory: 512Mi, limits.memory: 1Gi, pods: "6", persistentvolumeclaims: "2", requests.storage: 2Gi}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata: {name: quota, namespace: familiar-tools}
+spec:
+  hard: {requests.cpu: 400m, requests.memory: 512Mi, limits.memory: 1Gi, pods: "8", persistentvolumeclaims: "0"}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata: {name: quota, namespace: familiar-agents}
+spec:
+  # Sized for one Hermes under Kata, including VM overhead. Revisit after the
+  # Kata overhead measurement (A6; the week-long CPU baseline was dropped, D23).
+  hard: {requests.cpu: "1", requests.memory: 3Gi, limits.memory: 4Gi, pods: "3", persistentvolumeclaims: "2", requests.storage: 10Gi}
+---
+apiVersion: v1
+kind: LimitRange
+metadata: {name: defaults, namespace: familiar-system}
+spec:
+  limits: [{type: Container, default: {memory: 128Mi}, defaultRequest: {cpu: 10m, memory: 32Mi}, max: {memory: 512Mi}}]
+---
+apiVersion: v1
+kind: LimitRange
+metadata: {name: defaults, namespace: familiar-tools}
+spec:
+  limits: [{type: Container, default: {memory: 128Mi}, defaultRequest: {cpu: 10m, memory: 32Mi}, max: {memory: 256Mi}}]
+---
+apiVersion: v1
+kind: LimitRange
+metadata: {name: defaults, namespace: familiar-agents}
+spec:
+  limits: [{type: Container, default: {memory: 1Gi}, defaultRequest: {cpu: 50m, memory: 256Mi}, max: {memory: 3Gi}}]

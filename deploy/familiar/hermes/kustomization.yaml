@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# kubectl apply -k deploy/familiar/hermes
+# ConfigMaps are generated from the files here with a content hash in their
+# names, so changing config.yaml, SOUL.md, a script or the auditor rolls the
+# pods that use them. No global `namespace:` here: memory-auditor's
+# ServiceMonitor and the PrometheusRules live in `monitoring` (each file sets
+# its own namespaces).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - memory-auditor.yaml
+  - alerts.yaml
+generatorOptions: {}
+configMapGenerator:
+  - name: hermes-config
+    namespace: familiar-agents
+    files: [config.yaml, SOUL.md]
+  - name: hermes-scripts
+    namespace: familiar-agents
+    files: [scripts/alert-gate.py]
+  - name: memory-auditor
+    namespace: familiar-agents
+    files: [memory-auditor.py]

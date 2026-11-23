@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: Apache-2.0
+# Hermes liveness (design §4.1, dead-man's switch paragraph; D17). Severity
+# warning, so the laptop dead-man's switch reports it.
+# kube-prometheus-stack's KubePodCrashLooping and KubeDeploymentReplicasMismatch
+# also fire for Hermes (every namespace); these add what they miss: the
+# Deployment being gone, restarts that never reach CrashLoopBackOff, and a pod
+# that runs but has stopped doing its scheduled work.
+# Scaling Hermes to 0 (the G4 kill switch) fires none of them.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata: {name: hermes, namespace: monitoring}
+spec:
+  groups:
+    - name: familiar.hermes
+      rules:
+        - alert: HermesDown
+          expr: |
+            (
+              kube_deployment_status_replicas_available{namespace="familiar-agents",deployment="hermes"}
+                < kube_deployment_spec_replicas{namespace="familiar-agents",deployment="hermes"}
+            )
+            or absent(kube_deployment_spec_replicas{namespace="familiar-agents",deployment="hermes"})
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: "GIDEON (Hermes) has had no available replica for 10 minutes, or its Deployment is gone"
+            description: "kubectl -n familiar-agents describe deploy/hermes; kubectl -n familiar-agents logs deploy/hermes --previous"
+        - alert: HermesRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="familiar-agents",pod=~"hermes-.+",container="hermes"}[1h]) > 2
+          labels: {severity: warning}
+          annotations:
+            summary: "GIDEON (Hermes) restarted {{ $value | humanize }} times in the last hour"
+            description: "kubectl -n familiar-agents logs deploy/hermes --previous"
+        # The 4-hourly health sweep (D20) always makes at least one model call,
+        # so 5 hours with none from watch-officer means the scheduler has stopped
+        # (or the sweep job was never recreated after an apply). Only once the
+        # pod has been up 5 hours, so a fresh start doesn't fire it. `or
+        # vector(0)` covers a model-gate that has no watch-officer series yet.
+        - alert: HermesIdle
+          expr: |
+            (sum(increase(model_gate_requests_total{role="watch-officer"}[5h])) or vector(0)) == 0
+            and on() (time() - max(kube_pod_start_time{namespace="familiar-agents",pod=~"hermes-.+"}) > 5 * 3600)
+          for: 15m
+          labels: {severity: warning}
+          annotations:
+            summary: "GIDEON has made no model calls in 5 hours (the 4-hourly sweep should have run)"
+            description: "Check the cron jobs exist and are enabled: kubectl -n familiar-agents exec deploy/hermes -- hermes cron list"

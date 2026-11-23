@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+# Hermes config.yaml fragment for the tool servers (design Q5). Remote MCP
+# servers use url (Streamable HTTP). Per server: allowlist the tools with
+# tools.include, and turn sampling and elicitation off (both default on);
+# these servers never use them, and leaving them on would let a server ask
+# the agent's model for completions.
+mcp_servers:
+  cluster-read:
+    url: http://cluster-read.familiar-tools.svc.cluster.local:8080/mcp
+    tools:
+      include: [cluster_overview, list_pods, describe_workload, recent_events, storage_status, certificates, ingresses]
+    sampling: {enabled: false}
+    elicitation: {enabled: false}
+  metrics-query:
+    url: http://metrics-query.familiar-tools.svc.cluster.local:8080/mcp
+    tools:
+      include: [query_metric, metric_history]
+    sampling: {enabled: false}
+    elicitation: {enabled: false}
+  ceph-health:
+    url: http://ceph-health.familiar-tools.svc.cluster.local:8080/mcp
+    tools:
+      include: [ceph_status, ceph_osds, ceph_pools]
+    sampling: {enabled: false}
+    elicitation: {enabled: false}
+  cert-probe:
+    url: http://cert-probe.familiar-tools.svc.cluster.local:8080/mcp
+    tools:
+      include: [probe_all_certificates, probe_certificate]
+    sampling: {enabled: false}
+    elicitation: {enabled: false}
+# Verify these key names against the Hermes version you deploy: the docs
+# researched in A1 named `sampling`/`elicitation` per server, but the exact
+# shape wasn't confirmed against a running Hermes.

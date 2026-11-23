@@ -1,0 +1,305 @@
+# SPDX-License-Identifier: Apache-2.0
+# Read-only MCP tool servers (DRAFT, not applied). Design §4.1; code in tools/.
+# One image holds all four binaries, pinned by digest (T8; pushed 2026-11-22). Each server
+# listens on :8080 (/mcp and /healthz) and writes one audit line per call.
+#
+# Only Hermes pods (familiar-agents, role watch-officer) may reach them, and
+# each server may reach only its own backend.
+
+# ---------- cluster-read: the only one with Kubernetes API access ----------
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: cluster-read, namespace: familiar-tools}
+automountServiceAccountToken: false
+---
+# get/list only. Deliberately absent: secrets, configmaps, pods/log,
+# pods/exec, serviceaccounts/token, RBAC, NetworkPolicies/CNPs, and every
+# write verb (T3, T4). The familiar-* namespaces are hidden by the tool server
+# itself (cmd/cluster-read/scope.go): a ClusterRole can't exclude namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: familiar-cluster-read}
+rules:
+  - apiGroups: [""]
+    resources: [pods, events, nodes, persistentvolumeclaims, persistentvolumes, namespaces]
+    verbs: [get, list]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets, replicasets]
+    verbs: [get, list]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list]
+  - apiGroups: [events.k8s.io]
+    resources: [events]
+    verbs: [get, list]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list]
+  - apiGroups: [cert-manager.io]
+    resources: [certificates]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: familiar-cluster-read}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: familiar-cluster-read}
+subjects: [{kind: ServiceAccount, name: cluster-read, namespace: familiar-tools}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cluster-read
+  namespace: familiar-tools
+  labels: &labels {app.kubernetes.io/name: cluster-read, app.kubernetes.io/part-of: familiar, familiar/kind: tool-server}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: cluster-read}}
+  template:
+    metadata: {labels: *labels}
+    spec:
+      serviceAccountName: cluster-read
+      automountServiceAccountToken: true # needs its own token for the API
+      priorityClassName: familiar-low
+      enableServiceLinks: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: cluster-read
+          image: ghcr.io/runlevel-six/familiar-tools@sha256:67bf859835779a7206ba716fdb367ffd842377f98d9059678a3f9753076d806c # 0.2.1-f0562ac
+          command: ["/cluster-read"]
+          ports: [{name: mcp, containerPort: 8080}]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}
+          readinessProbe: {httpGet: {path: /healthz, port: mcp}, periodSeconds: 15}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: cluster-read-egress, namespace: familiar-tools}
+spec:
+  endpointSelector: {matchLabels: {app.kubernetes.io/name: cluster-read}}
+  egress:
+    - toEntities: [kube-apiserver]
+      toPorts: [{ports: [{port: "6443", protocol: TCP}]}]
+
+# ---------- metrics-query and ceph-health: Prometheus only ----------
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: prometheus-reader, namespace: familiar-tools}
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics-query
+  namespace: familiar-tools
+  labels: &mqlabels {app.kubernetes.io/name: metrics-query, app.kubernetes.io/part-of: familiar, familiar/kind: tool-server, familiar/needs: prometheus}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: metrics-query}}
+  template:
+    metadata: {labels: *mqlabels}
+    spec:
+      serviceAccountName: prometheus-reader
+      automountServiceAccountToken: false
+      priorityClassName: familiar-low
+      enableServiceLinks: false
+      dnsConfig: {options: [{name: ndots, value: "1"}]}
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: metrics-query
+          image: ghcr.io/runlevel-six/familiar-tools@sha256:67bf859835779a7206ba716fdb367ffd842377f98d9059678a3f9753076d806c # 0.2.1-f0562ac
+          command: ["/metrics-query"]
+          env: [{name: PROMETHEUS_URL, value: "http://kps-prometheus.monitoring.svc.cluster.local:9090"}]
+          ports: [{name: mcp, containerPort: 8080}]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}
+          readinessProbe: {httpGet: {path: /healthz, port: mcp}, periodSeconds: 15}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ceph-health
+  namespace: familiar-tools
+  labels: &chlabels {app.kubernetes.io/name: ceph-health, app.kubernetes.io/part-of: familiar, familiar/kind: tool-server, familiar/needs: prometheus}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: ceph-health}}
+  template:
+    metadata: {labels: *chlabels}
+    spec:
+      serviceAccountName: prometheus-reader
+      automountServiceAccountToken: false
+      priorityClassName: familiar-low
+      enableServiceLinks: false
+      dnsConfig: {options: [{name: ndots, value: "1"}]}
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: ceph-health
+          image: ghcr.io/runlevel-six/familiar-tools@sha256:67bf859835779a7206ba716fdb367ffd842377f98d9059678a3f9753076d806c # 0.2.1-f0562ac
+          command: ["/ceph-health"]
+          env: [{name: PROMETHEUS_URL, value: "http://kps-prometheus.monitoring.svc.cluster.local:9090"}]
+          ports: [{name: mcp, containerPort: 8080}]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}
+          readinessProbe: {httpGet: {path: /healthz, port: mcp}, periodSeconds: 15}
+---
+# Prometheus only, never Alertmanager (it can create silences; §4.3, D5).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: prometheus-readers-egress, namespace: familiar-tools}
+spec:
+  endpointSelector: {matchLabels: {familiar/needs: prometheus}}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports: [{port: "53", protocol: ANY}]
+          rules:
+            dns:
+              - matchName: kps-prometheus.monitoring.svc.cluster.local
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: monitoring
+            app.kubernetes.io/name: prometheus
+      toPorts: [{ports: [{port: "9090", protocol: TCP}]}]
+
+# ---------- cert-probe: Traefik only ----------
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: cert-probe, namespace: familiar-tools}
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cert-probe
+  namespace: familiar-tools
+  labels: &cplabels {app.kubernetes.io/name: cert-probe, app.kubernetes.io/part-of: familiar, familiar/kind: tool-server}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: cert-probe}}
+  template:
+    metadata: {labels: *cplabels}
+    spec:
+      serviceAccountName: cert-probe
+      automountServiceAccountToken: false
+      priorityClassName: familiar-low
+      enableServiceLinks: false
+      dnsConfig: {options: [{name: ndots, value: "1"}]}
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: cert-probe
+          image: ghcr.io/runlevel-six/familiar-tools@sha256:67bf859835779a7206ba716fdb367ffd842377f98d9059678a3f9753076d806c # 0.2.1-f0562ac
+          command: ["/cert-probe"]
+          env:
+            - {name: TARGET, value: "traefik.traefik.svc.cluster.local:443"}
+            # Fixed list, never caller-supplied (no SSRF). Keep in sync with the
+            # ingresses. Placeholder: the real list is set by the site overlay.
+            - {name: HOSTS, value: "app.example.org,auth.example.org"}
+          ports: [{name: mcp, containerPort: 8080}]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 128Mi}}
+          readinessProbe: {httpGet: {path: /healthz, port: mcp}, periodSeconds: 15}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: cert-probe-egress, namespace: familiar-tools}
+spec:
+  endpointSelector: {matchLabels: {app.kubernetes.io/name: cert-probe}}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports: [{port: "53", protocol: ANY}]
+          rules:
+            dns:
+              - matchName: traefik.traefik.svc.cluster.local
+    # Policy sees the backend pod port: Service 443 -> Traefik websecure 8443.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: traefik
+            app.kubernetes.io/name: traefik
+      toPorts: [{ports: [{port: "8443", protocol: TCP}]}]
+
+# ---------- Services and who may call the tool servers ----------
+---
+apiVersion: v1
+kind: Service
+metadata: {name: cluster-read, namespace: familiar-tools}
+spec: {selector: {app.kubernetes.io/name: cluster-read}, ports: [{name: mcp, port: 8080, targetPort: mcp}]}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: metrics-query, namespace: familiar-tools}
+spec: {selector: {app.kubernetes.io/name: metrics-query}, ports: [{name: mcp, port: 8080, targetPort: mcp}]}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: ceph-health, namespace: familiar-tools}
+spec: {selector: {app.kubernetes.io/name: ceph-health}, ports: [{name: mcp, port: 8080, targetPort: mcp}]}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: cert-probe, namespace: familiar-tools}
+spec: {selector: {app.kubernetes.io/name: cert-probe}, ports: [{name: mcp, port: 8080, targetPort: mcp}]}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: tool-servers-ingress, namespace: familiar-tools}
+spec:
+  endpointSelector: {matchLabels: {familiar/kind: tool-server}}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: familiar-agents
+            familiar/role: watch-officer
+      toPorts: [{ports: [{port: "8080", protocol: TCP}]}]
+---
+# The watch officer's side (Hermes itself is in hermes/): it may reach
+# model-gate's role port, the tool servers and the Matrix homeserver (Q8/D19,
+# rule below), and resolve only their names.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: watch-officer-egress, namespace: familiar-agents}
+spec:
+  endpointSelector: {matchLabels: {familiar/role: watch-officer}}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports: [{port: "53", protocol: ANY}]
+          rules:
+            dns:
+              - matchName: model-gate.familiar-system.svc.cluster.local
+              - matchName: cluster-read.familiar-tools.svc.cluster.local
+              - matchName: metrics-query.familiar-tools.svc.cluster.local
+              - matchName: ceph-health.familiar-tools.svc.cluster.local
+              - matchName: cert-probe.familiar-tools.svc.cluster.local
+              - matchName: ess-synapse.matrix.svc.cluster.local
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: familiar-system
+            app.kubernetes.io/name: model-gate
+      toPorts: [{ports: [{port: "8081", protocol: TCP}]}]
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: familiar-tools
+            familiar/kind: tool-server
+      toPorts: [{ports: [{port: "8080", protocol: TCP}]}]
+    # Matrix (D19, D21): the ESS HAProxy pods behind the ess-synapse Service,
+    # client API port only. Never the Traefik hostname.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: matrix
+            app.kubernetes.io/instance: ess-haproxy
+      toPorts: [{ports: [{port: "8008", protocol: TCP}]}]

@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+# Design §4.3: default deny ingress and egress in all three namespaces; the
+# per-component policies below open exactly what each needs. An empty rule
+# ({}) selects no peers, so these allow nothing. After applying, check every
+# CNP reports Valid=True (an invalid policy enforces nothing; A5) and watch
+# Hubble for drops.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: default-deny, namespace: familiar-system}
+spec:
+  endpointSelector: {}
+  ingress: [{}]
+  egress: [{}]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: default-deny, namespace: familiar-agents}
+spec:
+  endpointSelector: {}
+  ingress: [{}]
+  egress: [{}]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: default-deny, namespace: familiar-tools}
+spec:
+  endpointSelector: {}
+  ingress: [{}]
+  egress: [{}]

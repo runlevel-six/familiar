@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# A worked example. Copy it somewhere outside the public tree (this repo keeps
+# its real one in the gitignored local/ directory), point `resources` at the
+# base, and set your own values: hostnames and Matrix IDs are facts about your
+# network and people, and this repository is public.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../familiar
+patches:
+  # The certificates cert-probe checks: every host your ingress serves.
+  - target: {kind: Deployment, name: cert-probe, namespace: familiar-tools}
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/env/1
+        value: {name: HOSTS, value: "app.example.org,auth.example.org,chat.example.org"}
+  # The agent's Matrix account and the only user it will talk to.
+  - target: {kind: Deployment, name: hermes, namespace: familiar-agents}
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata: {name: hermes, namespace: familiar-agents}
+      spec:
+        template:
+          spec:
+            containers:
+              - name: hermes
+                env:
+                  - {name: MATRIX_USER_ID, value: "@gideon:example.org"}
+                  - {name: MATRIX_ALLOWED_USERS, value: "@owner:example.org"}
+  # The gauge your host backup jobs write (metrics-query's backup_age_hours).
+  - target: {kind: Deployment, name: metrics-query, namespace: familiar-tools}
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata: {name: metrics-query, namespace: familiar-tools}
+      spec:
+        template:
+          spec:
+            containers:
+              - name: metrics-query
+                env:
+                  - {name: BACKUP_METRIC, value: "site_backup_last_success_timestamp_seconds"}

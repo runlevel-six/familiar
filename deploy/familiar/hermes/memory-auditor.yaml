@@ -1,0 +1,140 @@
+# SPDX-License-Identifier: Apache-2.0
+# memory-auditor (design §4.1): records changes to GIDEON's persistent state
+# in a git repo on its own volume, which the agent can't reach. DRAFT, not
+# applied. Code and behaviour: memory-auditor.py. Tested locally against the
+# harness's Hermes volume (2026-11-23).
+#
+# It runs in familiar-agents, not familiar-system, because it must mount the
+# Hermes PVC (read-only) and PVCs can't cross namespaces. It's a separate pod
+# from Hermes, with its own volume, no network egress and no API token; Hermes
+# has no API access, so it can't reach or change this pod.
+#
+# Same uid as Hermes (10000): cron/jobs.json and config.yaml are mode 600/640,
+# so a different uid couldn't read them. Secrets in the volume (.env, Matrix
+# E2EE store and recovery key, databases) are excluded in the code.
+#
+# Kata (A6): the volume is then shared between a VM pod and a normal pod on the
+# same node. Check that the auditor still sees Hermes' writes after A6.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: memory-audit, namespace: familiar-agents}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-block
+  resources: {requests: {storage: 1Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memory-auditor
+  namespace: familiar-agents
+  labels: {app.kubernetes.io/name: memory-auditor}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/name: memory-auditor}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: memory-auditor
+        familiar/role: memory-auditor
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      priorityClassName: familiar-low
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: auditor
+          # The Hermes image only for its Python and git; no Hermes code runs.
+          image: docker.io/nousresearch/hermes-agent@sha256:3e9fe4c6ef36490f43aa0d0d80f9df64e9c92a576eee3042f1a97c8813c05355 # v0.23.3
+          command: ["/opt/hermes/.venv/bin/python3", "/app/memory-auditor.py"]
+          env:
+            - {name: SRC, value: /hermes}
+            - {name: REPO, value: /audit/repo}
+            - {name: BASELINE_CONFIG, value: /baseline/config.yaml}
+            - {name: INTERVAL, value: "300"}
+            - {name: HOME, value: /tmp}
+          ports: [{name: metrics, containerPort: 9100}]
+          readinessProbe: {httpGet: {path: /healthz, port: metrics}, periodSeconds: 30}
+          volumeMounts:
+            - {name: hermes-data, mountPath: /hermes, readOnly: true}
+            - {name: audit, mountPath: /audit}
+            - {name: app, mountPath: /app, readOnly: true}
+            - {name: baseline, mountPath: /baseline, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 10m, memory: 64Mi}, limits: {memory: 256Mi}}
+      volumes:
+        - {name: hermes-data, persistentVolumeClaim: {claimName: hermes-data, readOnly: true}}
+        - {name: audit, persistentVolumeClaim: {claimName: memory-audit}}
+        - {name: app, configMap: {name: memory-auditor, defaultMode: 0444}}
+        - {name: baseline, configMap: {name: hermes-config, items: [{key: config.yaml, path: config.yaml}]}}
+        - {name: tmp, emptyDir: {sizeLimit: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: memory-auditor, namespace: familiar-agents, labels: {app.kubernetes.io/name: memory-auditor}}
+spec:
+  selector: {app.kubernetes.io/name: memory-auditor}
+  ports: [{name: metrics, port: 9100, targetPort: metrics}]
+---
+# Default-deny (02-default-deny.yaml) blocks everything else; this pod needs
+# no egress at all, and only Prometheus may scrape it.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: memory-auditor-ingress, namespace: familiar-agents}
+spec:
+  endpointSelector: {matchLabels: {familiar/role: memory-auditor}}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: monitoring
+            app.kubernetes.io/name: prometheus
+      toPorts: [{ports: [{port: "9100", protocol: TCP}]}]
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata: {name: memory-auditor, namespace: monitoring}
+spec:
+  namespaceSelector: {matchNames: [familiar-agents]}
+  selector: {matchLabels: {app.kubernetes.io/name: memory-auditor}}
+  endpoints: [{port: metrics, interval: 60s}]
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata: {name: memory-auditor, namespace: monitoring}
+spec:
+  groups:
+    - name: familiar.memory-auditor
+      rules:
+        # Warning reaches Jase through the laptop dead-man's switch (D17).
+        - alert: GideonControlStateChanged
+          expr: increase(memory_auditor_changes_total{area=~"cron|config|files"}[15m]) > 0
+          labels: {severity: warning}
+          annotations:
+            summary: "GIDEON's {{ $labels.area }} state changed (cron jobs, config drift or an unexpected file)"
+            description: "Review: kubectl -n familiar-agents exec deploy/memory-auditor -- git -C /audit/repo log -p -3"
+        # Memory changes are expected; reviewed weekly (Phase 1 exit criteria).
+        - alert: GideonMemoryChanged
+          expr: increase(memory_auditor_changes_total{area="memories"}[15m]) > 0
+          labels: {severity: info}
+          annotations:
+            summary: "GIDEON's memory changed"
+            description: "Review weekly: kubectl -n familiar-agents exec deploy/memory-auditor -- git -C /audit/repo log -p -- memories"
+        - alert: MemoryAuditorStale
+          expr: time() - memory_auditor_last_run_timestamp_seconds > 900 or absent(memory_auditor_last_run_timestamp_seconds)
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: "memory-auditor hasn't completed a run in 15 minutes (or isn't being scraped)"
+        - alert: MemoryAuditorErrors
+          expr: increase(memory_auditor_errors_total[30m]) > 0
+          labels: {severity: warning}
+          annotations:
+            summary: "memory-auditor runs are failing (see its log)"

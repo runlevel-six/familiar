@@ -1,0 +1,196 @@
+# SPDX-License-Identifier: Apache-2.0
+# model-gate (DRAFT, not applied). Design §4.1; code in model-gate/.
+#
+# Before applying:
+#   1. Image pushed 2026-11-22 and pinned by digest below (T8). Make the GHCR
+#      package public (or add a pull secret) before applying.
+#   2. Create the key Secret out of band (never in git):
+#        kubectl -n familiar-system create secret generic model-gate-keys \
+#          --from-file=watch-officer=/path/to/key
+#   3. Confirm the budgets in the ConfigMap (Q9).
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: model-gate, namespace: familiar-system}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: model-gate-config, namespace: familiar-system}
+data:
+  config.json: |
+    {
+      "upstream": "https://api.anthropic.com",
+      "metrics_listen": ":9090",
+      "state_file": "/var/lib/model-gate/state.json",
+      "prices": {
+        "claude-opus-5-5":   {"input": 4.0, "output": 20.0, "cache_read": 0.20,  "cache_write_5m": 5.0,   "cache_write_1h": 8.0},
+        "claude-sonnet-5-5": {"input": 2.0, "output": 10.0, "cache_read": 0.10,  "cache_write_5m": 2.5,   "cache_write_1h": 4.0},
+        "claude-haiku-5-5":  {"input": 0.10, "output": 0.50, "cache_read": 0.01,  "cache_write_5m": 0.125, "cache_write_1h": 0.20,
+                              "long_context": {"over_prompt_tokens": 100000, "input": 0.50, "output": 2.50, "cache_read": 0.05, "cache_write_5m": 0.625, "cache_write_1h": 1.0}}
+      },
+      "roles": [
+        {
+          "name": "watch-officer",
+          "listen": ":8081",
+          "key_file": "/etc/model-gate/keys/watch-officer",
+          "models": ["claude-sonnet-5-5", "claude-haiku-5-5"],
+          "max_tokens_per_request": 32000,
+          "clamp_max_tokens": true,
+          "allowed_betas": ["interleaved-thinking-2025-05-14", "fine-grained-tool-streaming-2025-05-14"],
+          "hourly_usd": 1.0,
+          "daily_usd": 3.0
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: model-gate-state, namespace: familiar-system}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-block
+  resources: {requests: {storage: 1Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-gate
+  namespace: familiar-system
+  labels: {app.kubernetes.io/name: model-gate, app.kubernetes.io/part-of: familiar}
+spec:
+  replicas: 1 # kill switch (G4): kubectl -n familiar-system scale deploy/model-gate --replicas=0
+  strategy: {type: Recreate} # one writer for the budget state file
+  selector: {matchLabels: {app.kubernetes.io/name: model-gate}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: model-gate, app.kubernetes.io/part-of: familiar}
+    spec:
+      serviceAccountName: model-gate
+      automountServiceAccountToken: false
+      priorityClassName: familiar-low
+      enableServiceLinks: false
+      dnsConfig: {options: [{name: ndots, value: "1"}]} # A5: strict DNS policy needs ndots:1
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: model-gate
+          image: ghcr.io/runlevel-six/model-gate@sha256:ff2807371289e3ef777cdd8c658ab0a1b086abc32293174408acf4f908b418f1 # 0.2.0-86b0d42
+          args: ["-config", "/etc/model-gate/config.json"]
+          ports:
+            - {name: watch-officer, containerPort: 8081}
+            - {name: metrics, containerPort: 9090}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          readinessProbe: {httpGet: {path: /healthz, port: metrics}, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /healthz, port: metrics}, periodSeconds: 30}
+          volumeMounts:
+            - {name: config, mountPath: /etc/model-gate/config.json, subPath: config.json, readOnly: true}
+            - {name: keys, mountPath: /etc/model-gate/keys, readOnly: true}
+            - {name: state, mountPath: /var/lib/model-gate}
+      volumes:
+        - name: config
+          configMap: {name: model-gate-config}
+        - name: keys
+          secret: {secretName: model-gate-keys, defaultMode: 0400}
+        - name: state
+          persistentVolumeClaim: {claimName: model-gate-state}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-gate
+  namespace: familiar-system
+  labels: {app.kubernetes.io/name: model-gate}
+spec:
+  selector: {app.kubernetes.io/name: model-gate}
+  ports:
+    - {name: watch-officer, port: 8081, targetPort: watch-officer}
+    - {name: metrics, port: 9090, targetPort: metrics}
+---
+# Who may reach model-gate: the watch officer on its role port only, and
+# Prometheus on the metrics port. A role's port is its identity (§4.1).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: model-gate-ingress, namespace: familiar-system}
+spec:
+  endpointSelector: {matchLabels: {app.kubernetes.io/name: model-gate}}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: familiar-agents
+            familiar/role: watch-officer
+      toPorts: [{ports: [{port: "8081", protocol: TCP}]}]
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: monitoring
+            app.kubernetes.io/name: prometheus
+      toPorts: [{ports: [{port: "9090", protocol: TCP}]}]
+---
+# Where model-gate may go: api.anthropic.com:443 and nothing else (T1, T2).
+# Follows the A5 rules: exact DNS name, ndots:1, check Valid=True after apply.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: model-gate-egress, namespace: familiar-system}
+spec:
+  endpointSelector: {matchLabels: {app.kubernetes.io/name: model-gate}}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports: [{port: "53", protocol: ANY}]
+          rules:
+            dns:
+              - matchName: api.anthropic.com
+    - toFQDNs:
+        - matchName: api.anthropic.com
+      toPorts: [{ports: [{port: "443", protocol: TCP}]}]
+---
+# Scraped by the monitoring stack. Lives in `monitoring`, which familiar can't
+# modify (§4.2).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata: {name: model-gate, namespace: monitoring}
+spec:
+  namespaceSelector: {matchNames: [familiar-system]}
+  selector: {matchLabels: {app.kubernetes.io/name: model-gate}}
+  endpoints: [{port: metrics, interval: 30s}]
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata: {name: model-gate, namespace: monitoring}
+spec:
+  groups:
+    - name: familiar.model-gate
+      rules:
+        - alert: ModelGateDown
+          expr: absent(up{job="model-gate"} == 1)
+          for: 10m
+          labels: {severity: warning}
+          annotations: {summary: "model-gate is not being scraped (down, or scaled to 0 by the kill switch)"}
+        - alert: ModelGateBudgetExhausted
+          expr: increase(model_gate_rejections_total{reason=~".*budget_exhausted"}[15m]) > 0
+          labels: {severity: warning}
+          annotations: {summary: "model-gate refused requests for role {{ $labels.role }}: {{ $labels.reason }} (runaway loop? T6)"}
+        - alert: ModelGateDailyBudgetHigh
+          expr: model_gate_budget_spent_usd{window="day"} / (model_gate_budget_limit_usd{window="day"} > 0) > 0.8
+          labels: {severity: info}
+          annotations: {summary: "Role {{ $labels.role }} has spent {{ $value | humanizePercentage }} of today's budget"}
+        - alert: ModelGatePolicyRejections
+          expr: increase(model_gate_rejections_total{reason!~".*budget_exhausted"}[1h]) > 0
+          labels: {severity: warning}
+          annotations: {summary: "Role {{ $labels.role }} sent requests model-gate refused ({{ $labels.reason }}): check the audit log (T1, T2, T9)"}
+        - alert: ModelGateUnpricedModel
+          expr: increase(model_gate_unpriced_total[1h]) > 0
+          labels: {severity: info}
+          annotations: {summary: "A response named model {{ $labels.model }} with no configured price; add it to the price table"}

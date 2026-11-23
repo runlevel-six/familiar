@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# Phase 1 (DRAFT, not applied). Design §4.2. All three namespaces enforce the
+# restricted Pod Security Standard.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: familiar-system
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    familiar/managed: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: familiar-agents
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    familiar/managed: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: familiar-tools
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    familiar/managed: "true"

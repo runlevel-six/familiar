@@ -1,0 +1,145 @@
+# SPDX-License-Identifier: Apache-2.0
+# Read-only cluster access for Claude Code and local tool-server tests
+# (design §5.0 Tier B). Replaces day-to-day use of the admin kubeconfig.
+#
+# Rights: the built-in `view` ClusterRole everywhere (no Secrets; it does
+# include pod specs, ConfigMaps and pod logs), plus `readonly-extras` for
+# cluster-scoped objects and operator CRDs that `view` doesn't cover.
+# RBAC can't subtract, so extras are listed explicitly, never "*".
+#
+# Deliberately excluded:
+#   - Secrets (any namespace)
+#   - nodes/proxy (direct kubelet API: exec, logs, metrics on the node)
+#   - services/proxy, except GET to Prometheus (Role at the end)
+#   - hub.traefik.io AccessControlPolicies (can carry an inline JWT signing secret)
+#   - metallb.io BGPPeers (can carry an inline BGP password)
+#   - every write verb, exec, attach, port-forward, impersonation
+#
+# The token lives in the Secret below. Revoke everything with:
+#   kubectl delete -f deploy/access/readonly.yaml
+# Revoke only the token (the kubeconfig stops working; a new token is
+# issued when the Secret is recreated):
+#   kubectl -n cluster-readonly delete secret viewer-token
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cluster-readonly
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: viewer
+  namespace: cluster-readonly
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: viewer-token
+  namespace: cluster-readonly
+  annotations:
+    kubernetes.io/service-account.name: viewer
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: readonly-extras
+rules:
+  - apiGroups: [""]
+    resources: [nodes, persistentvolumes, namespaces, componentstatuses]
+    verbs: [get, list, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses, csidrivers, csinodes, volumeattachments, volumeattributesclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [scheduling.k8s.io]
+    resources: [priorityclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [node.k8s.io]
+    resources: [runtimeclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingressclasses, ipaddresses, servicecidrs]
+    verbs: [get, list, watch]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list, watch]
+  - apiGroups: [apiregistration.k8s.io]
+    resources: [apiservices]
+    verbs: [get, list, watch]
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [validatingwebhookconfigurations, mutatingwebhookconfigurations, validatingadmissionpolicies, validatingadmissionpolicybindings, mutatingadmissionpolicies, mutatingadmissionpolicybindings]
+    verbs: [get, list, watch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles, clusterrolebindings, roles, rolebindings]
+    verbs: [get, list, watch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch]
+  - apiGroups: [events.k8s.io]
+    resources: [events]
+    verbs: [get, list, watch]
+  - apiGroups: [ceph.rook.io, cilium.io, monitoring.coreos.com, traefik.io, acme.cert-manager.io, objectbucket.io]
+    resources: ["*"]
+    verbs: [get, list, watch]
+  - apiGroups: [metallb.io]
+    resources: [ipaddresspools, l2advertisements, servicel2statuses]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-readonly-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: viewer
+    namespace: cluster-readonly
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-readonly-extras
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: readonly-extras
+subjects:
+  - kind: ServiceAccount
+    name: viewer
+    namespace: cluster-readonly
+---
+# GET through the API server's service proxy to Prometheus only, so the
+# metrics-query and ceph-health tool servers can be run locally against
+# the live cluster. GET can't change Prometheus (its admin API needs
+# POST/PUT and is disabled). Alertmanager and every other service are
+# not proxied.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: readonly-prometheus-proxy
+  namespace: monitoring
+rules:
+  - apiGroups: [""]
+    resources: [services/proxy]
+    resourceNames: [kps-prometheus, "kps-prometheus:9090", "http:kps-prometheus:9090"]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: readonly-prometheus-proxy
+  namespace: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: readonly-prometheus-proxy
+subjects:
+  - kind: ServiceAccount
+    name: viewer
+    namespace: cluster-readonly

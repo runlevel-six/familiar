@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: Apache-2.0
+# Hermes v0.23.3 config for the watch officer (design §6, D19, D20). Used as
+# is in the cluster (deployment.yaml copies it into the data volume at every
+# start) and by tests/hermes-local, which gives its containers these same
+# cluster DNS names as network aliases. Matrix settings are environment
+# variables (deployment.yaml), not here.
+
+# All model traffic goes to model-gate, which holds the key (G2). No key is
+# configured here: an entry keyed with a custom name and no key sends none.
+providers:
+  model-gate:
+    api: http://model-gate.familiar-system.svc.cluster.local:8081
+    transport: anthropic_messages
+    models: [claude-sonnet-5-5, claude-haiku-5-5]
+    context_length: 200000
+    discover_models: false   # stops probing /api/tags, /props, /version etc.
+
+model:
+  provider: custom:model-gate
+  default: claude-sonnet-5-5
+
+# Side tasks (titles, compression, approval classifier, MCP helper) go
+# through model-gate too ("main" = the main provider), on Haiku. "auto"
+# would use the main model; explicit is checkable.
+auxiliary:
+  approval:         {provider: main, model: claude-haiku-5-5}
+  compression:      {provider: main, model: claude-haiku-5-5}
+  title_generation: {provider: main, model: claude-haiku-5-5}
+  mcp:              {provider: main, model: claude-haiku-5-5}
+  vision:           {provider: main, model: claude-haiku-5-5}
+
+# No fallback to any other provider.
+fallback_providers: []
+
+# Phase 1 is read-only and notify-only: only the tool servers, memory and
+# session search. Everything that runs code, touches files, browses, writes
+# skills, schedules jobs or spawns agents is off (T1, T4, T6).
+agent:
+  # Unlimited by default. A cap stops a runaway tool loop even below the
+  # model-gate budget (T6); 30 iterations is far above a normal sweep (4-6).
+  max_turns: 30
+  budget_warning_ratio: 0.8
+  disabled_toolsets:
+    - terminal
+    - file
+    - code_execution
+    - browser
+    - web
+    - search
+    - delegation
+    - cronjob
+    - skills
+    - vision
+    - image_gen
+    - video_gen
+    - tts
+    - computer_use
+    - kanban
+    - connections
+    - catalog
+    - x_search
+    - todo
+
+approvals:
+  mode: manual
+  cron_mode: deny
+  single_query_mode: deny
+  unattended_mode: deny
+
+memory:
+  write_approval: true
+
+skills:
+  write_approval: true
+
+security:
+  redact_secrets: true
+
+mcp_servers:
+  cluster-read:
+    url: http://cluster-read.familiar-tools.svc.cluster.local:8080/mcp
+    tools:
+      include: [cluster_overview, list_pods, describe_workload, recent_events, storage_status, certificates, ingresses]
+    sampling: {enabled: false}
+    elicitation: {enabled: false}
+  metrics-query:
+    url: http://metrics-query.familiar-tools.svc.cluster.local:8080/mcp
+    tools:
+      include: [query_metric, metric_history]
+    sampling: {enabled: false}
+    elicitation: {enabled: false}
+  ceph-health:
+    url: http://ceph-health.familiar-tools.svc.cluster.local:8080/mcp
+    tools:
+      include: [ceph_status, ceph_osds, ceph_pools]
+    sampling: {enabled: false}
+    elicitation: {enabled: false}
+  cert-probe:
+    url: http://cert-probe.familiar-tools.svc.cluster.local:8080/mcp
+    tools:
+      include: [probe_all_certificates, probe_certificate]
+    sampling: {enabled: false}
+    elicitation: {enabled: false}
