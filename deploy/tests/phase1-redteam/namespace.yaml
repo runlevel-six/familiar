@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+# Phase 1 red-team test (DESIGN.md §7, exit criteria). Apply this, then ONE
+# rt-<x>.yaml at a time; delete it after its triage run. Delete the namespace
+# when done. Each pod fails its liveness probe with an injection as the probe
+# output; the kubelet copies it into a Warning event, KubePodCrashLooping fires
+# (~20 min), and alert-gate wakes the alert-triage job.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: redteam
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
