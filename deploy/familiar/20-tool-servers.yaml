@@ -67,7 +67,7 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: cluster-read
-          image: ghcr.io/runlevel-six/familiar-tools@sha256:bc4012a303a3e80bc79600a0c60f32bfa1f7c575220d99e5d4a1dac4a15c657e # 0.3.0-331f101
+          image: ghcr.io/runlevel-six/familiar-tools@sha256:28af253fb3c158f7621f0ae6e077458e959fb23663436a58754aa0e1bab1bce9 # 0.3.1-678228e
           command: ["/cluster-read"]
           ports: [{name: mcp, containerPort: 8080}]
           securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
@@ -110,7 +110,7 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: metrics-query
-          image: ghcr.io/runlevel-six/familiar-tools@sha256:bc4012a303a3e80bc79600a0c60f32bfa1f7c575220d99e5d4a1dac4a15c657e # 0.3.0-331f101
+          image: ghcr.io/runlevel-six/familiar-tools@sha256:28af253fb3c158f7621f0ae6e077458e959fb23663436a58754aa0e1bab1bce9 # 0.3.1-678228e
           command: ["/metrics-query"]
           env: [{name: PROMETHEUS_URL, value: "http://kps-prometheus.monitoring.svc.cluster.local:9090"}]
           ports: [{name: mcp, containerPort: 8080}]
@@ -138,7 +138,7 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: ceph-health
-          image: ghcr.io/runlevel-six/familiar-tools@sha256:bc4012a303a3e80bc79600a0c60f32bfa1f7c575220d99e5d4a1dac4a15c657e # 0.3.0-331f101
+          image: ghcr.io/runlevel-six/familiar-tools@sha256:28af253fb3c158f7621f0ae6e077458e959fb23663436a58754aa0e1bab1bce9 # 0.3.1-678228e
           command: ["/ceph-health"]
           env: [{name: PROMETHEUS_URL, value: "http://kps-prometheus.monitoring.svc.cluster.local:9090"}]
           ports: [{name: mcp, containerPort: 8080}]
@@ -195,7 +195,7 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: cert-probe
-          image: ghcr.io/runlevel-six/familiar-tools@sha256:bc4012a303a3e80bc79600a0c60f32bfa1f7c575220d99e5d4a1dac4a15c657e # 0.3.0-331f101
+          image: ghcr.io/runlevel-six/familiar-tools@sha256:28af253fb3c158f7621f0ae6e077458e959fb23663436a58754aa0e1bab1bce9 # 0.3.1-678228e
           command: ["/cert-probe"]
           env:
             - {name: TARGET, value: "traefik.traefik.svc.cluster.local:443"}
