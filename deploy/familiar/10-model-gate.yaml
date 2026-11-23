@@ -78,7 +78,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: model-gate
-          image: ghcr.io/runlevel-six/model-gate@sha256:992d6f8eeb8d0ab177fb7c1b5d65bcba4ee67f8314ce4faa1ce67ff99921d568 # 0.2.1-9184c25
+          image: ghcr.io/runlevel-six/model-gate@sha256:7a8b5643a21895bfe3e2a1e556821ecc0d40eea6cab65d48642f74c8a865612a # 0.2.2-95d5a61
           args: ["-config", "/etc/model-gate/config.json"]
           ports:
             - {name: watch-officer, containerPort: 8081}
