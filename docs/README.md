@@ -1,7 +1,8 @@
 # familiar documentation
 
 familiar runs an always-on AI agent in a home Kubernetes cluster without trusting
-it. The agent, GIDEON, watches the cluster and talks to its owner over Matrix; it
+it. The agent, GIDEON (Generally Intelligent Daemon, Exceptionally Organized &
+Nosy), watches the cluster and talks to its owner over Matrix; it
 holds no credentials, and every privileged action goes through a broker that
 does. Phase 1, the read-only watch officer, is built and tested locally.
 

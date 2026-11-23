@@ -3,7 +3,8 @@
 *An always-on AI agent for a home Kubernetes cluster, built on the assumption that
 it might turn against you.*
 
-familiar runs a persistent agent, GIDEON (on [Hermes Agent](https://github.com/NousResearch/hermes-agent)
+familiar runs a persistent agent, GIDEON (Generally Intelligent Daemon,
+Exceptionally Organized & Nosy; built on [Hermes Agent](https://github.com/NousResearch/hermes-agent)
 and Claude), inside a home cluster. It watches the cluster's health, triages
 alerts and answers questions over Matrix. It is also a deliberate exercise in the
 operational and security patterns that long-running agents need: standing

@@ -2,7 +2,8 @@
 
 familiar runs an always-on AI agent inside a home Kubernetes cluster without
 trusting it. The agent, a [Hermes Agent](https://github.com/NousResearch/hermes-agent)
-instance called GIDEON, can read the cluster's state and talk to its owner over
+instance called GIDEON (Generally Intelligent Daemon, Exceptionally Organized &
+Nosy), can read the cluster's state and talk to its owner over
 Matrix. It holds no credentials of its own: not the model API key, not a
 Kubernetes token. Everything privileged goes through a broker that holds the
 credential and enforces a policy the agent can't change.
