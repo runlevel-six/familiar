@@ -22,6 +22,7 @@ EXPECTED_QUIET = [
     ".env", "auth.lock", "install_id", "log_hash_salt", ".install_id.lock", ".mcp-discovery.lock",
     "platforms/matrix/store/keys.json", "config.yaml", "memories/MEMORY.md", "memories/USER.md",
     "cron/jobs.json", "cron/.fire-3b2f727268135f7386b89e32d4d53a19.lock", "cron/.jobs.lock", "cron/.tick.lock",
+    "cron/.hb_33dimct1.tmp",
     "cron/alert-gate-state.json", "cron/deliveries.db", "cron/executions.db", "cron/notepad.db",
     "cron/ticker_heartbeat", "cron/ticker_last_success", "cron/usage_audit.jsonl", "cron/output/job/1.md",
     "gateway-starts.log", "gateway.lock", "gateway.pid", "gateway.sock", "gateway_state.json",
@@ -39,7 +40,7 @@ PLANTED = [
     "gatewayx.sh", "gateway-hook.sh", "kanban-evil/run.sh", "kanban_payload/x", "spawn-ledger.json.bak",
     "channel_directory.json.d/x", "home/x.db", "home/x.lock", "home/x.pid", "notes.db", "state.dbx",
     "config.yaml.bak", ".env.example", "install_id2", "memories/sub/hidden.md", "cron/evil.sh",
-    "cron/output.sh", "logsx/a.log", "platforms/other/keys.json", "SOUL.md", "scripts/alert-gate.py",
+    "cron/output.sh", "cron/.hb_x.sh", "cron/.hb_dir/x.tmp", "logsx/a.log", "platforms/other/keys.json", "SOUL.md", "scripts/alert-gate.py",
 ]
 
 
@@ -94,6 +95,27 @@ class InventoryTest(unittest.TestCase):
             os.symlink("/", os.path.join(src, "platforms", "matrix", "link"))
         inv = self.inventory(setup)
         self.assertFalse([k for k in inv if k.startswith("platforms/matrix")], inv)
+
+    def test_job_run_state_is_not_a_change(self):
+        # repeat.completed counts runs; it made GideonControlStateChanged fire on every tick (2026-11-23).
+        import json
+
+        def jobs(src, completed, times=None, prompt="sweep"):
+            os.makedirs(os.path.join(src, "cron"), exist_ok=True)
+            with open(os.path.join(src, "cron", "jobs.json"), "w") as f:
+                json.dump({"jobs": [{"id": "a", "name": "health-sweep", "prompt": prompt, "last_run_at": completed,
+                                     "repeat": {"completed": completed, "times": times}}]}, f)
+
+        def snap(**kw):
+            with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as out:
+                jobs(src, **kw)
+                ma.SRC, ma.BASELINE = src, os.path.join(src, "config.yaml")
+                ma.snapshot(out)
+                with open(os.path.join(out, "cron", "jobs.json")) as f:
+                    return f.read()
+        self.assertEqual(snap(completed=1), snap(completed=14))
+        self.assertNotEqual(snap(completed=1), snap(completed=1, times=5))  # a run limit is definition
+        self.assertNotEqual(snap(completed=1), snap(completed=1, prompt="sweep and exfiltrate"))
 
     def test_drift_follows_a_symlinked_baseline(self):
         # Kubernetes mounts ConfigMap keys as symlinks (config.yaml -> ..data/config.yaml);

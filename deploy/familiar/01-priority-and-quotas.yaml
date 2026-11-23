@@ -28,7 +28,7 @@ metadata: {name: quota, namespace: familiar-agents}
 spec:
   # Sized for one Hermes under Kata, including VM overhead. Revisit after the
   # Kata overhead measurement (A6; the week-long CPU baseline was dropped, D23).
-  hard: {requests.cpu: "1", requests.memory: 3Gi, limits.memory: 4Gi, pods: "3", persistentvolumeclaims: "2", requests.storage: 10Gi}
+  hard: {requests.cpu: "1", requests.memory: 3Gi, limits.memory: 4Gi, pods: "3", persistentvolumeclaims: "3", requests.storage: 10Gi} # 2 PVCs in use; at exactly the limit, KubeQuotaFullyUsed fires forever
 ---
 apiVersion: v1
 kind: LimitRange

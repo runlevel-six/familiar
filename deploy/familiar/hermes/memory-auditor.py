@@ -67,7 +67,7 @@ NOISY = (
       for suffix in ("", "-shm", "-wal", "-journal", ".*.lock")),
     # cron/: the scheduler's own state (jobs.json is the cron area)
     "cron/output/", "cron/admissions/", "cron/.fire-*.lock", "cron/.jobs.lock", "cron/.tick.lock",
-    "cron/ticker_heartbeat", "cron/ticker_last_success", "cron/usage_audit.jsonl",
+    "cron/ticker_heartbeat", "cron/ticker_last_success", "cron/usage_audit.jsonl", "cron/.hb_*.tmp",
     "cron/alert-gate-state.json", "cron/alert-gate-test-state.json",
     *(f"cron/{db}{suffix}" for db in ("deliveries.db", "executions.db", "notepad.db")
       for suffix in ("", "-shm", "-wal", "-journal")),
@@ -174,7 +174,10 @@ def snapshot(out):
         with open(jpath) as f:
             raw = json.load(f)
         for j in raw.get("jobs", raw if isinstance(raw, list) else []):
-            jobs.append({k: j.get(k) for k in JOB_KEYS if k in j})
+            job = {k: j.get(k) for k in JOB_KEYS if k in j}
+            if isinstance(job.get("repeat"), dict):  # keep the limit ("times"), drop the run counter
+                job["repeat"] = {k: v for k, v in job["repeat"].items() if k != "completed"}
+            jobs.append(job)
     jobs.sort(key=lambda j: str(j.get("id")))
     with open(os.path.join(out, "cron", "jobs.json"), "w") as f:
         json.dump(jobs, f, indent=2, sort_keys=True)

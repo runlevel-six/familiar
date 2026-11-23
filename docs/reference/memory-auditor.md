@@ -22,7 +22,7 @@ How to use what it records: [Review and restore GIDEON's memory](../how-to/revie
 | Area | Contents |
 |---|---|
 | `memories/` | Every file directly in `memories/` (`MEMORY.md`, `USER.md`) |
-| `cron/jobs.json` | Job definitions, keeping only definition fields (id, name, prompt, schedule, model, provider, script, delivery, enabled toolsets, …) and dropping the run state the scheduler rewrites every tick |
+| `cron/jobs.json` | Job definitions, keeping only definition fields (id, name, prompt, schedule, model, provider, script, delivery, enabled toolsets, …) and dropping the run state the scheduler rewrites every tick, including `repeat.completed` (the run counter; `repeat.times` is kept) |
 | `config/` | `config.yaml` as it is on the volume, and `drift.txt` saying whether it matches the ConfigMap |
 | `files/inventory.tsv` | Path, size and SHA-256 of every other file; symlinks as their target |
 
