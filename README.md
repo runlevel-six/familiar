@@ -1,7 +1,13 @@
-# familiar
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-header-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/logo-header.png">
+    <img src="docs/assets/logo-header.png" alt="familiar" width="520">
+  </picture>
+</h1>
 
-*An always-on AI agent for a home Kubernetes cluster, built on the assumption that
-it might turn against you.*
+<p align="center"><em>An always-on AI agent for a home Kubernetes cluster, built on the assumption that
+it might turn against you.</em></p>
 
 familiar runs a persistent agent, GIDEON (Generally Intelligent Daemon,
 Exceptionally Organized & Nosy; built on [Hermes Agent](https://github.com/NousResearch/hermes-agent)
