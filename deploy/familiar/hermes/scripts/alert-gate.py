@@ -42,7 +42,7 @@ def firing_alerts():
         result = json.load(resp)["result"]
     if result.get("isError"):
         raise RuntimeError("metrics-query returned an error result")
-    return [r["labels"] for r in result["structuredContent"].get("results", [])]
+    return [r["labels"] for r in result["structuredContent"].get("results") or []]  # null when nothing matches
 
 
 def key(labels):
@@ -52,7 +52,7 @@ def key(labels):
 def main():
     try:
         alerts = firing_alerts()
-    except (urllib.error.URLError, OSError, KeyError, ValueError, RuntimeError) as e:
+    except (urllib.error.URLError, OSError, KeyError, TypeError, ValueError, RuntimeError) as e:
         print(f"alert-gate: could not query firing alerts: {type(e).__name__}")
         return 1
 

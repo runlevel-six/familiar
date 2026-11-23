@@ -177,3 +177,29 @@ func TestFamiliarFilteredFromResults(t *testing.T) {
 		t.Errorf("filtered too much: %s", b)
 	}
 }
+
+type emptyProm struct{}
+
+func (emptyProm) Query(context.Context, string) ([]prom.Sample, error) { return nil, nil }
+func (emptyProm) QueryRange(context.Context, string, time.Time, time.Time, time.Duration) ([]prom.Series, error) {
+	return nil, nil
+}
+
+// alert-gate.py iterates "results"; null crashed it when nothing was firing.
+func TestEmptyResultsAreArrays(t *testing.T) {
+	h := &handlers{q: emptyProm{}, now: time.Now}
+	for _, tl := range h.tools() {
+		args := `{"template":"firing_alerts"}`
+		if tl.Name == "metric_history" {
+			args = `{"template":"node_cpu_cores_used"}`
+		}
+		out, err := tl.Handler(context.Background(), json.RawMessage(args))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(out)
+		if strings.Contains(string(b), "null") {
+			t.Errorf("%s: empty result has null: %s", tl.Name, b)
+		}
+	}
+}

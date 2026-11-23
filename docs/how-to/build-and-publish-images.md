@@ -42,6 +42,11 @@ model-gate is pinned in `deploy/familiar/10-model-gate.yaml`, the tool servers i
 The packages are public, so the cluster pulls without credentials. Check a new
 digest pulls anonymously before applying.
 
+After a new tool-servers image rolls out, restart Hermes
+(`kubectl -n familiar-agents rollout restart deploy/hermes`). Hermes reads each
+MCP server's tool list once, at start, so until then it keeps the old tools and
+descriptions and can't call new templates.
+
 ## Check what you ship
 
 The images are public. Before pushing, make sure no site-specific string was

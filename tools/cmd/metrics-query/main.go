@@ -147,7 +147,7 @@ var templates = map[string]tmpl{
 		Build: func(p params) string {
 			return fmt.Sprintf(`kubelet_volume_stats_used_bytes{%[1]s} / kubelet_volume_stats_capacity_bytes{%[1]s}`, nsSel(p))
 		}},
-	"firing_alerts": {Description: "Alerts currently firing in Prometheus (Watchdog and InfoInhibitor excluded).",
+	"firing_alerts": {Description: "Alerts currently firing in Prometheus (Watchdog, InfoInhibitor and familiar's own alerts excluded).",
 		Build: func(params) string {
 			return `ALERTS{alertstate="firing", alertname!~"Watchdog|InfoInhibitor|` + familiarAlerts + `", ` + notFamiliar + `}`
 		}},
@@ -160,7 +160,7 @@ var templates = map[string]tmpl{
 			return fmt.Sprintf(`changes(process_start_time_seconds{job="kubelet", metrics_path="/metrics"}[%s])`, p.Window)
 		}},
 	// Network (Hubble flow metrics with namespace context, and the Cilium agent).
-	"network_drops": {Description: "Packets Cilium dropped within the window, by source namespace, destination namespace and reason (empty namespace = the node or outside the cluster). VLAN_FILTERED on host traffic is usually LAN noise, not a fault.",
+	"network_drops": {Description: "Packets Cilium dropped within the window (Hubble drop metrics), by source namespace, destination namespace and reason (empty namespace = the node or outside the cluster). VLAN_FILTERED on host traffic is usually LAN noise, not a fault.",
 		Uses: []string{"namespace", "window", "limit"},
 		Build: func(p params) string {
 			return sumFlows("hubble_drop_total", "source_namespace, destination_namespace, reason", flowSel(p.Namespace, ""), p.Window, p.Limit)
@@ -170,7 +170,7 @@ var templates = map[string]tmpl{
 		Build: func(p params) string {
 			return sumFlows("hubble_drop_total", "source_namespace, destination_namespace", flowSel(p.Namespace, `reason="POLICY_DENIED"`), p.Window, p.Limit)
 		}},
-	"network_flow_verdicts": {Description: "Flows Cilium processed within the window, by verdict (FORWARDED, DROPPED, ...); for one namespace, also by source and destination namespace.",
+	"network_flow_verdicts": {Description: "Flows Cilium processed within the window (Hubble flow metrics), by verdict (FORWARDED, DROPPED, ...); for one namespace, also by source and destination namespace.",
 		Uses: []string{"namespace", "window"},
 		Build: func(p params) string {
 			by := "verdict" // cluster-wide
@@ -303,6 +303,9 @@ func (h *handlers) query(ctx context.Context, args json.RawMessage) (any, error)
 		return nil, err
 	}
 	samples = hideFamiliar(samples)
+	if samples == nil {
+		samples = []prom.Sample{} // "results": [], never null: scripts iterate it
+	}
 	if len(samples) > 200 {
 		samples = samples[:200]
 	}
@@ -335,6 +338,9 @@ func (h *handlers) history(ctx context.Context, args json.RawMessage) (any, erro
 	series, err := h.q.QueryRange(ctx, t.Build(params{}), start, end, step)
 	if err != nil {
 		return nil, err
+	}
+	if series == nil {
+		series = []prom.Series{}
 	}
 	return map[string]any{"template": in.Template, "hours": in.Hours, "step_seconds": int(step.Seconds()), "series": series}, nil
 }
