@@ -97,9 +97,10 @@ func invisible(r rune) bool {
 }
 
 // Value redacts every string (keys and values) in any JSON-encodable value
-// and returns the cleaned generic structure.
+// and returns the cleaned generic structure. Nil slices come back as empty
+// lists, never null.
 func Value(v any, o Options) (any, error) {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(emptySlices(v))
 	if err != nil {
 		return nil, err
 	}
