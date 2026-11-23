@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# check-private.sh: keep private data out of the repository (docs/public-repo.md).
+# check-private.sh: keep private data out of the repository (docs/how-to/keep-site-details-private.md).
 #
 # Reads local/denylist.txt (gitignored; one term per line, '#' comments allowed)
 # and fails if any term appears, case-insensitively and as a whole word, in:

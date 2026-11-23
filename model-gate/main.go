@@ -4,7 +4,7 @@
 // keys. Agents send unauthenticated Messages API requests to their role's
 // listener; model-gate checks them, injects the role's key, forwards them to
 // api.anthropic.com, meters the usage against USD budgets, and writes one
-// audit line per request. Design: docs/design.md §4.1 (D3, D4, T1, T6).
+// audit line per request. Design: docs/DESIGN.md §4.1 (D3, D4, T1, T6).
 package main
 
 import (

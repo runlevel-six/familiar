@@ -9,7 +9,7 @@ Manifests for everything familiar depends on, applied by hand with `kubectl` and
 | [tests](tests/) | Throwaway tests for Phase 0 prerequisites (A5 FQDN egress; A6 Kata to follow) |
 | [access](access/) | The read-only kubeconfig ServiceAccount |
 
-Site-specific material (the real overlay, the monitoring stack's values and ingress, the Matrix homeserver, app database dumps, host backup scripts, runbooks, the cluster inventory and incident notes) lives in the gitignored `local/` directory: see `docs/public-repo.md`.
+Site-specific material (the real overlay, the monitoring stack's values and ingress, the Matrix homeserver, app database dumps, host backup scripts, runbooks, the cluster inventory and incident notes) lives in the gitignored `local/` directory: see [Public repository, private details](../docs/explanation/public-and-private.md).
 
 ## Rules (design §4.2, T4)
 

@@ -25,7 +25,7 @@ Prometheus metrics on :9100/metrics:
   memory_auditor_changes_total{area}
   memory_auditor_errors_total
 Review: kubectl -n familiar-agents exec deploy/memory-auditor -- git -C /audit/repo log -p
-Restore: see deploy/familiar/README.md (memory-auditor).
+Restore: see docs/how-to/review-and-restore-memory.md.
 """
 
 import fnmatch

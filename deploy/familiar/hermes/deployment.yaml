@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Hermes, the Phase 1 watch officer (design §4.1, §6). DRAFT, not applied.
-# Settings come from the local test (tests/hermes-local/README.md):
+# Settings come from the local test (docs/explanation/local-test-findings.md):
 #   - started directly as the image's own user (uid 10000): the image's default
 #     root start needs SETUID/SETGID/CHOWN, which restricted PSS forbids
 #   - read-only root filesystem; writable: the data volume, /run, /tmp
