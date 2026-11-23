@@ -44,6 +44,18 @@ series that still carries a `familiar-*` namespace (in `namespace`,
 returned. The agent can't watch its own guardrails, or learn which of its own
 connections the network policies refuse.
 
+One exception: `firing_alerts` includes **operational** alerts about familiar,
+the ones that describe its environment's health rather than how it is watched:
+`HermesDown`, `HermesRestarting`, `HermesIdle`, `ModelGateDown`,
+`ModelGateDailyBudgetHigh`, `ModelGateBudgetExhausted`, `ModelGateUnpricedModel`,
+and the generic quota, pod, deployment, volume and throttling alerts
+(`KubeQuota*`, `KubePodCrashLooping`, `KubePodNotReady`, `KubeContainerWaiting`,
+`KubeDeployment*`, `KubePersistentVolume*`, `CPUThrottlingHigh`). The agent can
+report these but not investigate them. Detection alerts (`Gideon*`,
+`MemoryAuditor*`, `ModelGatePolicyRejections`, `ModelGateEndpointRejections`,
+policy alerts) stay hidden, and so does any operational alert whose labels
+mention the auditor: memory-auditor being down is a gap in detection.
+
 | Tool | Parameters |
 |---|---|
 | `query_metric` | `template` (required); `namespace`, `window` (`5m`, `15m`, `1h`, `6h`, `24h`; default `1h`), `limit` (1–20, default 10) for templates that take them |
@@ -61,7 +73,7 @@ connections the network policies refuse.
 | `top_container_memory` | `namespace`, `limit` | Pods using the most memory (working set) |
 | `cpu_throttling` | `namespace` | Containers throttled in more than 25% of CFS periods over 5 minutes |
 | `pvc_usage` | `namespace` | Used fraction of each mounted PVC |
-| `firing_alerts` | | Firing alerts, except `Watchdog`, `InfoInhibitor` and familiar's own |
+| `firing_alerts` | | Firing alerts, except `Watchdog`, `InfoInhibitor` and familiar's detection alerts (operational ones about familiar are included; see above) |
 | `targets_down` | | Scrape targets that are down, outside `familiar-*` |
 | `backup_age_hours` | | Hours since the last successful backup of each kind (see `BACKUP_METRIC`) |
 | `kubelet_restarts` | `window` | kubelet restarts within the window |

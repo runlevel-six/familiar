@@ -55,11 +55,36 @@ var (
 // query, and filtered out of every result (hideFamiliar) in case a template
 // forgets. familiarAlerts are the guardrails' own alerts, which the agent
 // mustn't see either: they report on it.
+//
+// The exception is operationalAlerts: alerts about the health of familiar's
+// environment (quota, restarts, disk, budget, a component down), which tell
+// the agent nothing about how it is watched. firing_alerts includes these for
+// familiar too, unless a label mentions the auditor: memory-auditor being down
+// is a gap in detection, which the agent mustn't learn about.
 const (
 	hiddenNamespacePrefix = "familiar-"
 	notFamiliar           = `namespace!~"familiar-.*"`
 	familiarAlerts        = `Gideon.*|ModelGate.*|MemoryAuditor.*|Hermes.*`
+	operationalAlerts     = `HermesDown|HermesRestarting|HermesIdle|ModelGateDown|ModelGateDailyBudgetHigh|ModelGateBudgetExhausted|ModelGateUnpricedModel|` +
+		`KubeQuotaAlmostFull|KubeQuotaFullyUsed|KubeQuotaExceeded|KubePodCrashLooping|KubePodNotReady|KubeContainerWaiting|` +
+		`KubeDeploymentReplicasMismatch|KubeDeploymentRolloutStuck|KubePersistentVolumeFillingUp|KubePersistentVolumeErrors|CPUThrottlingHigh`
 )
+
+var operationalAlert = regexp.MustCompile(`^(` + operationalAlerts + `)$`)
+
+// visibleFamiliarAlert reports whether a familiar alert is operational and
+// says nothing about the auditor.
+func visibleFamiliarAlert(l map[string]string) bool {
+	if !operationalAlert.MatchString(l["alertname"]) {
+		return false
+	}
+	for _, v := range l {
+		if strings.Contains(strings.ToLower(v), "auditor") {
+			return false
+		}
+	}
+	return true
+}
 
 func hiddenNamespace(ns string) bool { return strings.HasPrefix(ns, hiddenNamespacePrefix) }
 
@@ -147,9 +172,10 @@ var templates = map[string]tmpl{
 		Build: func(p params) string {
 			return fmt.Sprintf(`kubelet_volume_stats_used_bytes{%[1]s} / kubelet_volume_stats_capacity_bytes{%[1]s}`, nsSel(p))
 		}},
-	"firing_alerts": {Description: "Alerts currently firing in Prometheus (Watchdog, InfoInhibitor and familiar's own alerts excluded).",
+	"firing_alerts": {Description: "Alerts currently firing in Prometheus (Watchdog and InfoInhibitor excluded). For familiar's own namespaces, only operational alerts (quota, restarts, disk, budget, a component down) are included; you can see these but not investigate them.",
 		Build: func(params) string {
-			return `ALERTS{alertstate="firing", alertname!~"Watchdog|InfoInhibitor|` + familiarAlerts + `", ` + notFamiliar + `}`
+			return `ALERTS{alertstate="firing", alertname!~"Watchdog|InfoInhibitor|` + familiarAlerts + `", ` + notFamiliar + `}` +
+				` or ALERTS{alertstate="firing", alertname=~"` + operationalAlerts + `"}`
 		}},
 	"targets_down": {Description: "Scrape targets that are down.",
 		Build: func(params) string { return `up{` + notFamiliar + `} == 0` }},
@@ -211,8 +237,9 @@ func hideFamiliar(samples []prom.Sample) []prom.Sample {
 	alerts := regexp.MustCompile(`^(` + familiarAlerts + `)$`)
 	for _, s := range samples {
 		l := s.Labels
-		if hiddenNamespace(l["namespace"]) || hiddenNamespace(l["source_namespace"]) ||
-			hiddenNamespace(l["destination_namespace"]) || alerts.MatchString(l["alertname"]) {
+		hidden := hiddenNamespace(l["namespace"]) || hiddenNamespace(l["source_namespace"]) ||
+			hiddenNamespace(l["destination_namespace"]) || alerts.MatchString(l["alertname"])
+		if hidden && !visibleFamiliarAlert(l) {
 			continue
 		}
 		out = append(out, s)

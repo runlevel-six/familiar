@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -151,6 +152,13 @@ func (l *leakyProm) Query(_ context.Context, q string) ([]prom.Sample, error) {
 		{Labels: map[string]string{"alertname": "GideonMemoryChanged"}, Value: 1},
 		{Labels: map[string]string{"alertname": "ModelGatePolicyRejections", "role": "watch-officer"}, Value: 1},
 		{Labels: map[string]string{"alertname": "KubePodCrashLooping", "namespace": "shop"}, Value: 1},
+		// Operational alerts about familiar are visible, unless they mention the auditor.
+		{Labels: map[string]string{"alertname": "KubeQuotaFullyUsed", "namespace": "familiar-agents", "resourcequota": "quota"}, Value: 1},
+		{Labels: map[string]string{"alertname": "HermesRestarting", "namespace": "familiar-agents"}, Value: 1},
+		{Labels: map[string]string{"alertname": "KubePodCrashLooping", "namespace": "familiar-agents", "pod": "memory-auditor-7d-x"}, Value: 1},
+		{Labels: map[string]string{"alertname": "KubePodNotReady", "namespace": "familiar-agents", "container": "Auditor"}, Value: 1},
+		{Labels: map[string]string{"alertname": "MemoryAuditorStale", "namespace": "familiar-agents"}, Value: 1},
+		{Labels: map[string]string{"alertname": "ModelGatePolicyRejections", "namespace": "familiar-system"}, Value: 1},
 	}, nil
 }
 
@@ -168,13 +176,23 @@ func TestFamiliarFilteredFromResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := json.Marshal(out)
-	for _, leak := range []string{"familiar-", "Gideon", "ModelGate"} {
-		if strings.Contains(string(b), leak) {
-			t.Errorf("result leaks %q: %s", leak, b)
-		}
+	var got struct {
+		Results []struct{ Labels map[string]string } `json:"results"`
 	}
-	if !strings.Contains(string(b), "KubePodCrashLooping") || !strings.Contains(string(b), `"count":2`) {
-		t.Errorf("filtered too much: %s", b)
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	var seen []string
+	for _, r := range got.Results {
+		seen = append(seen, r.Labels["alertname"]+"@"+r.Labels["namespace"]+r.Labels["source_namespace"])
+	}
+	sort.Strings(seen)
+	want := []string{"@shop", "HermesRestarting@familiar-agents", "KubePodCrashLooping@shop", "KubeQuotaFullyUsed@familiar-agents"}
+	if strings.Join(seen, " ") != strings.Join(want, " ") {
+		t.Errorf("visible series:\n got %v\nwant %v", seen, want)
+	}
+	if strings.Contains(strings.ToLower(string(b)), "auditor") || strings.Contains(string(b), "Gideon") || strings.Contains(string(b), "ModelGatePolicy") {
+		t.Errorf("result leaks detection state: %s", b)
 	}
 }
 
