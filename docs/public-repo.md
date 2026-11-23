@@ -46,9 +46,11 @@ private history is kept only as `local/familiar-history.bundle`
 Image versions built from that history that contained site names were deleted
 from GHCR the same day.
 
-## Before making it public
+## Made public 2026-11-23
+
+To keep it clean:
 
 1. `scripts/check-private.sh --all` and `betterleaks dir --redact .` both pass.
-2. Turn on branch protection for `main` (deploy/README.md).
+2. Protect `main`: done 2026-11-23, a ruleset (no deletion, no force push, pull request required; Jase's account bypasses).
 3. New source files keep the `SPDX-License-Identifier: Apache-2.0` header
    (`LICENSE`, `NOTICE`).

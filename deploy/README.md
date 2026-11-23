@@ -13,7 +13,7 @@ Site-specific material (the real overlay, the monitoring stack's values and ingr
 
 ## Rules (design §4.2, T4)
 
-- **Only Jase can push or merge.** As of 2026-11-22 the repo is private with no collaborators, deploy keys, webhooks or app installations. GitHub doesn't offer branch protection on free private repos; once the repo is public, protect `main` (require PRs, no force push).
+- **Only Jase can push or merge.** The repo is public (2026-11-23) with no collaborators, deploy keys, webhooks or app installations. A ruleset on `main` (same as kitchen-grimoire's) blocks deletion and force pushes and requires a pull request; only Jase's account bypasses it.
 - **No familiar component gets a token for this repo.** The Phase 2 `propose-change` token must be scoped to a different repo (the app manifests), never this one, because this repo holds the guardrails.
 - **No secrets and no site details in this repo.** It will be public. Secrets are created on the cluster and listed by name only; hostnames, addresses and the like go in `local/` (`scripts/check-private.sh` enforces it).
 - Claude Code (run by Jase on his laptop) may push here under Jase's account; that's Jase acting, not the agent.
