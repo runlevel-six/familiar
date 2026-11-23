@@ -133,6 +133,19 @@ def sha256(path):
     return h.hexdigest()
 
 
+def read_baseline(path):
+    """The ConfigMap copy of config.yaml. Unlike files on Hermes' volume, this
+    is ours and mounted read-only, and Kubernetes mounts ConfigMap keys as
+    symlinks (config.yaml -> ..data/config.yaml), so follow them here. If it
+    can't be read, return None: drift is then reported as unknown, never as
+    a match or a difference."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
 def read_text(path):
     if os.path.islink(path) or not os.path.isfile(path):
         return None
@@ -169,11 +182,14 @@ def snapshot(out):
     # config/
     os.makedirs(os.path.join(out, "config"))
     live = read_text(os.path.join(SRC, "config.yaml")) or ""
-    base = read_text(BASELINE) or ""
+    base = read_baseline(BASELINE)
     with open(os.path.join(out, "config", "config.yaml"), "w") as f:
         f.write(live)
     with open(os.path.join(out, "config", "drift.txt"), "w") as f:
-        f.write("matches the ConfigMap\n" if live == base else "DIFFERS from the ConfigMap (see config.yaml)\n")
+        if base is None:
+            f.write("UNKNOWN: the ConfigMap copy can't be read (%s)\n" % BASELINE)
+        else:
+            f.write("matches the ConfigMap\n" if live == base else "DIFFERS from the ConfigMap (see config.yaml)\n")
     # files/
     os.makedirs(os.path.join(out, "files"))
     lines = []

@@ -25,7 +25,7 @@ metadata: {name: hermes-data, namespace: familiar-agents}
 spec:
   accessModes: [ReadWriteOnce]
   storageClassName: ceph-block
-  resources: {requests: {storage: 2Gi}} # 5 MB after the local test; sessions and logs grow slowly
+  resources: {requests: {storage: 4Gi}} # 5 MB after the local test, but Hermes warns whenever under 2 GiB is free
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -97,6 +97,7 @@ spec:
           startupProbe:
             exec: {command: ["sh", "-c", "hermes gateway status >/dev/null 2>&1"]}
             periodSeconds: 10
+            timeoutSeconds: 20 # the command takes ~2 s, longer in a Kata VM; the default 1 s always failed
             failureThreshold: 18
           livenessProbe:
             exec: {command: ["sh", "-c", "hermes gateway status >/dev/null 2>&1"]}

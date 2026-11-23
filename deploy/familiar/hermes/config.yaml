@@ -18,6 +18,10 @@ providers:
 model:
   provider: custom:model-gate
   default: claude-sonnet-5-5
+  # Needed for the auxiliary tasks below: their client reads model.api_mode,
+  # not the provider's `transport`, and without it falls back to OpenAI-style
+  # /chat/completions, which model-gate refuses (found on deploy, 2026-11-23).
+  api_mode: anthropic_messages
 
 # Side tasks (titles, compression, approval classifier, MCP helper) go
 # through model-gate too ("main" = the main provider), on Haiku. "auto"

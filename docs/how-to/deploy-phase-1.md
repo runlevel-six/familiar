@@ -59,7 +59,15 @@ The cluster needs:
    kubectl apply -k <overlay>
    ```
 
-4. **Create the scheduled jobs.** The agent can't create jobs itself (its
+4. **Give the data volume to Hermes' user.** Kubernetes' `fsGroup` sets the
+   volume's group, but a new RBD volume's root directory stays owned by root, and
+   Hermes' CLI (`hermes cron`, `hermes -z`) then refuses to talk to its gateway
+   ("unsafe_control_path … owned by uid 0"). Fix it once, as root, outside the
+   restricted namespace: on the node,
+   `sudo chown 10000 /var/lib/kubelet/pods/<hermes pod uid>/volumes/kubernetes.io~csi/<pv>/mount`.
+   Only the top directory needs it; the volume keeps it until it's re-created.
+
+5. **Create the scheduled jobs.** The agent can't create jobs itself (its
    `cronjob` toolset is off), so you do it:
 
    ```sh
@@ -77,9 +85,11 @@ Don't trust an apply; check each boundary.
 - **Policies are valid.** `kubectl get cnp -A` shows every familiar policy
   `Valid=True`. An invalid policy enforces nothing.
 - **cluster-read's role is narrow.**
-  `kubectl auth can-i --as=system:serviceaccount:familiar-tools:cluster-read`
-  says **no** to `get secrets`, `get configmaps`, `get pods/log` and `create pods`,
-  and **yes** to `list pods`.
+  `kubectl auth can-i --as=system:serviceaccount:familiar-tools:cluster-read -A …`
+  says **no** to `get secrets`, `get configmaps`, `create pods`,
+  `get pods --subresource=log` and `create pods --subresource=exec`, and **yes**
+  to `list pods`. Write subresources with `--subresource`: `get pods/log` asks
+  about a pod *named* "log", which `get pods` allows.
 - **The agent's network is closed.** From a throwaway pod with the label
   `familiar/role: watch-officer` in `familiar-agents`: model-gate:8081 and the
   tool servers answer; `api.anthropic.com`, Alertmanager, Prometheus and any
@@ -104,6 +114,21 @@ Don't trust an apply; check each boundary.
   mount. First confirm Kata shares the volume over virtio-fs rather than passing
   the block device into the VM: two kernels mounting one filesystem would
   corrupt it.
+
+## Notes from the first deployment (2026-11-23)
+
+- Hermes' startup probe runs `hermes gateway status`, which takes about 2 s,
+  longer in a VM: it needs a `timeoutSeconds` well above Kubernetes' 1 s default.
+- Kata may report a probe kill as "OOMKilled" with exit code 0. Check the pod's
+  `memory.events` before believing it.
+- Hermes' side tasks (titles, compression) need `model.api_mode:
+  anthropic_messages` in its config, or they call `/chat/completions`, which
+  model-gate refuses.
+- Hermes warns about low disk whenever under 2 GiB is free, so its volume is
+  4 GiB.
+- Growing `hermes-data` while memory-auditor mounts it read-only fails at the
+  node ("requested read-only file system"). Scale memory-auditor to 0 until the
+  PVC shows the new capacity, then back to 1.
 
 ## Afterwards
 

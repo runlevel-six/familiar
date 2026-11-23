@@ -187,9 +187,17 @@ spec:
           labels: {severity: info}
           annotations: {summary: "Role {{ $labels.role }} has spent {{ $value | humanizePercentage }} of today's budget"}
         - alert: ModelGatePolicyRejections
-          expr: increase(model_gate_rejections_total{reason!~".*budget_exhausted"}[1h]) > 0
+          expr: increase(model_gate_rejections_total{reason!~".*budget_exhausted|path_not_allowed"}[1h]) > 0
           labels: {severity: warning}
           annotations: {summary: "Role {{ $labels.role }} sent requests model-gate refused ({{ $labels.reason }}): check the audit log (T1, T2, T9)"}
+        # Hermes probes model-discovery paths (/api/tags, /props, /version, ...) on
+        # every session even with discover_models: false; the gate refuses them as
+        # path_not_allowed. In Phase 1 the agent can't send HTTP requests of its
+        # own, so these come from Hermes' code: info, reviewed in the audit log.
+        - alert: ModelGateEndpointRejections
+          expr: increase(model_gate_rejections_total{reason="path_not_allowed"}[1h]) > 0
+          labels: {severity: info}
+          annotations: {summary: "Role {{ $labels.role }} called endpoints model-gate doesn't serve (usually Hermes' model discovery); see the audit log for paths"}
         - alert: ModelGateUnpricedModel
           expr: increase(model_gate_unpriced_total[1h]) > 0
           labels: {severity: info}

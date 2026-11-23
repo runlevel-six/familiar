@@ -95,6 +95,27 @@ class InventoryTest(unittest.TestCase):
         inv = self.inventory(setup)
         self.assertFalse([k for k in inv if k.startswith("platforms/matrix")], inv)
 
+    def test_drift_follows_a_symlinked_baseline(self):
+        # Kubernetes mounts ConfigMap keys as symlinks (config.yaml -> ..data/config.yaml);
+        # found 2026-11-23 when drift always said DIFFERS in the cluster.
+        with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as cm, \
+                tempfile.TemporaryDirectory() as out:
+            touch(src, "config.yaml")
+            os.makedirs(os.path.join(cm, "..data"))
+            with open(os.path.join(cm, "..data", "config.yaml"), "w") as f:
+                f.write("config.yaml")
+            os.symlink("..data/config.yaml", os.path.join(cm, "config.yaml"))
+            ma.SRC, ma.BASELINE = src, os.path.join(cm, "config.yaml")
+            ma.snapshot(out)
+            with open(os.path.join(out, "config", "drift.txt")) as f:
+                self.assertEqual(f.read(), "matches the ConfigMap\n")
+        with tempfile.TemporaryDirectory() as src, tempfile.TemporaryDirectory() as out:
+            touch(src, "config.yaml")
+            ma.SRC, ma.BASELINE = src, os.path.join(src, "missing.yaml")
+            ma.snapshot(out)
+            with open(os.path.join(out, "config", "drift.txt")) as f:
+                self.assertTrue(f.read().startswith("UNKNOWN"))
+
     def test_matches(self):
         m = ma.matches
         self.assertTrue(m("gateway", ("gateway/",), is_dir=True))
