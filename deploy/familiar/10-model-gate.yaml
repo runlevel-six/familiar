@@ -187,7 +187,7 @@ spec:
           labels: {severity: info}
           annotations: {summary: "Role {{ $labels.role }} has spent {{ $value | humanizePercentage }} of today's budget"}
         - alert: ModelGatePolicyRejections
-          expr: increase(model_gate_rejections_total{reason!~".*budget_exhausted|path_not_allowed"}[1h]) > 0
+          expr: increase(model_gate_rejections_total{reason!~".*budget_exhausted|path_not_allowed|discovery_probe"}[1h]) > 0
           labels: {severity: warning}
           annotations: {summary: "Role {{ $labels.role }} sent requests model-gate refused ({{ $labels.reason }}): check the audit log (T1, T2, T9)"}
         # Hermes probes model-discovery paths (/api/tags, /props, /version, ...) on

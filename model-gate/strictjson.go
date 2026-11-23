@@ -25,6 +25,7 @@ var checkedFields = map[string][]string{
 	"top":      {"model", "max_tokens", "stream", "tools", "mcp_servers", "container", "fallbacks", "system", "messages"},
 	"tool":     {"type", "name"},
 	"fallback": {"model"},
+	"message":  {"role", "content"}, // checkSources reads content; a "Content" twin could hide a url source
 }
 
 // checkUnambiguous returns an error if body has invalid UTF-8, a duplicate
@@ -42,7 +43,7 @@ func checkUnambiguous(body []byte) error {
 
 // walkJSON consumes one value. ctx names the object kind (a checkedFields
 // key) when the value is an object, or the kind of its elements' parent
-// ("tools", "fallbacks") when it is an array.
+// ("tools", "fallbacks", "messages") when it is an array.
 func walkJSON(dec *json.Decoder, ctx string) error {
 	tok, err := dec.Token()
 	if err != nil {
@@ -60,6 +61,8 @@ func walkJSON(dec *json.Decoder, ctx string) error {
 			elem = "tool"
 		case "fallbacks":
 			elem = "fallback"
+		case "messages":
+			elem = "message"
 		}
 		for dec.More() {
 			if err := walkJSON(dec, elem); err != nil {
@@ -84,7 +87,7 @@ func walkJSON(dec *json.Decoder, ctx string) error {
 				}
 			}
 			child := ""
-			if ctx == "top" && (key == "tools" || key == "fallbacks") {
+			if ctx == "top" && (key == "tools" || key == "fallbacks" || key == "messages") {
 				child = key
 			}
 			if err := walkJSON(dec, child); err != nil {

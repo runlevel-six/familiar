@@ -14,7 +14,8 @@ In [`deploy/familiar/10-model-gate.yaml`](../../deploy/familiar/10-model-gate.ya
 | `ModelGateDown` | warning | model-gate hasn't been scraped for 10 minutes: down, or stopped with the kill switch |
 | `ModelGateBudgetExhausted` | warning | A role's hourly or daily budget refused requests in the last 15 minutes. A runaway loop? |
 | `ModelGateDailyBudgetHigh` | info | A role has spent over 80% of its daily budget |
-| `ModelGatePolicyRejections` | warning | A role sent requests the gate refused for a policy reason in the last hour; check the audit log |
+| `ModelGatePolicyRejections` | warning | A role sent requests the gate refused for a policy reason (not budgets, unknown endpoints or discovery probes) in the last hour; check the audit log |
+| `ModelGateEndpointRejections` | info | A role called an endpoint the gate doesn't serve in the last hour (Hermes' known discovery probes excluded); the audit log has the paths |
 | `ModelGateUnpricedModel` | info | A response named a model with no configured price; add it |
 
 ## memory-auditor

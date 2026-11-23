@@ -69,11 +69,11 @@ and carry an `X-Model-Gate: rejected` header.
 
 | Check | On failure |
 |---|---|
-| Endpoint is `POST /v1/messages`, `POST /v1/messages/count_tokens` or `GET /v1/models[/{id}]` | 403 `path_not_allowed`, or 405 for the wrong method |
+| Endpoint is `POST /v1/messages`, `POST /v1/messages/count_tokens` or `GET /v1/models[/{id}]` | 403 `path_not_allowed`, or 405 for the wrong method. Hermes' model-discovery probes (`GET` of exactly `/models`, `/api/v1/models`, `/api/tags`, `/props`, `/v1/props` or `/version`) get 404 `discovery_probe` instead, answered locally, so they don't count as endpoint rejections |
 | Hourly and daily budget not yet spent (`count_tokens` and `models` are free) | 429 `hourly_budget_exhausted` / `daily_budget_exhausted` |
 | Body within `max_request_bytes` | 413 `request_too_large` |
 | Body is JSON | 400 `invalid_json` |
-| Body is unambiguous: valid UTF-8, no duplicate keys at any depth, no key that differs only in case from a field the gate checks | 400 `ambiguous_json` |
+| Body is unambiguous: valid UTF-8, no duplicate keys at any depth, no key that differs only in case from a field the gate checks (top level, tools, fallbacks, and each message's `role` and `content`) | 400 `ambiguous_json` |
 | Every image and document block in `system` and `messages` (including inside `tool_result` content and content documents) has an inline source: `base64`, `text` or `content`. A `url` source makes the API fetch the URL from Anthropic's network; `file` reads the Files API. Other types are refused until allowed. `tool_use` input isn't inspected | 403 `source_not_allowed` |
 | `model` is in `models` (also for `count_tokens`) | 403 `model_not_allowed` |
 | `max_tokens` between 1 and the cap (after clamping, if on) | 400 `max_tokens_over_cap` |

@@ -28,6 +28,15 @@ var allowedRoutes = map[string]string{
 	"/v1/models":                http.MethodGet,
 }
 
+// Model-discovery probes Hermes sends to every custom provider, looking for a
+// model list or a local server (Ollama, llama.cpp, LM Studio), even with
+// discover_models off. Answered 404 here and never forwarded, with their own
+// reason so they don't set off the endpoint alert. Exact paths, GET only:
+// anything else unknown is still path_not_allowed.
+var discoveryProbes = map[string]bool{
+	"/models": true, "/api/v1/models": true, "/api/tags": true, "/props": true, "/v1/props": true, "/version": true,
+}
+
 // Server-side tools that make Anthropic reach the network on the caller's
 // behalf, bypassing the cluster egress policy (T2, T9). Every non-custom tool
 // type is denied unless allowed_tool_types lists it; these only get a more
@@ -306,6 +315,8 @@ func checkRoute(req *http.Request) *rejection {
 		method, ok = http.MethodGet, true
 	}
 	switch {
+	case !ok && req.Method == http.MethodGet && discoveryProbes[path]:
+		return &rejection{http.StatusNotFound, "discovery_probe", "model-gate: not found: " + path}
 	case !ok:
 		return &rejection{http.StatusForbidden, "path_not_allowed", "model-gate: endpoint not allowed: " + path}
 	case req.Method != method:
