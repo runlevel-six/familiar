@@ -162,7 +162,7 @@ func (h *handlers) tools() []mcp.Tool {
 	empty := mcp.Object(map[string]any{})
 	return []mcp.Tool{
 		{Name: "ceph_status", Title: "Ceph status", InputSchema: empty, Handler: h.status,
-			Description: "Overall Ceph health, active health checks, mon quorum, OSD up/in counts, placement group states and capacity. Note: this cluster runs 2 OSDs on one host with replica size 2."},
+			Description: "Overall Ceph health, active health checks, mon quorum, OSD up/in counts, placement group states and capacity. On a single-host cluster, replicas are spread across OSDs rather than hosts, so the host itself is a single point of failure."},
 		{Name: "ceph_osds", Title: "Ceph OSDs", InputSchema: empty, Handler: h.osds,
 			Description: "Per-OSD up/in state, fullness, size and apply/commit latency."},
 		{Name: "ceph_pools", Title: "Ceph pools", InputSchema: empty, Handler: h.pools,

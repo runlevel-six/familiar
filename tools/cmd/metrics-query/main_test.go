@@ -103,3 +103,77 @@ func TestBackupMetricSetting(t *testing.T) {
 		}
 	}
 }
+
+// familiar's own namespaces and alerts stay invisible (design §3 T3), as in cluster-read.
+func TestFamiliarHidden(t *testing.T) {
+	f := &fakeProm{}
+	for _, args := range []string{
+		`{"template":"pod_restarts","namespace":"familiar-agents"}`,
+		`{"template":"network_drops","namespace":"familiar-system"}`,
+		`{"template":"top_container_memory","namespace":"familiar-tools"}`,
+	} {
+		_, err := run(t, f, "query_metric", args)
+		if err == nil || !strings.Contains(err.Error(), "not visible") {
+			t.Errorf("%s: err %v", args, err)
+		}
+	}
+	if len(f.queries) != 0 {
+		t.Fatalf("refused namespace reached Prometheus: %v", f.queries)
+	}
+	// Every template that takes a namespace excludes familiar's when it isn't given one.
+	for name, tm := range templates {
+		if !contains(tm.Uses, "namespace") {
+			continue
+		}
+		q := tm.Build(params{Window: "1h", Limit: 10})
+		if !strings.Contains(q, `namespace!~"familiar-.*"`) {
+			t.Errorf("%s doesn't exclude familiar namespaces: %s", name, q)
+		}
+	}
+	for _, name := range []string{"firing_alerts", "targets_down"} {
+		if q := templates[name].Build(params{}); !strings.Contains(q, `namespace!~"familiar-.*"`) {
+			t.Errorf("%s: %s", name, q)
+		}
+	}
+	if q := templates["firing_alerts"].Build(params{}); !strings.Contains(q, "Gideon.*") || !strings.Contains(q, "ModelGate.*") {
+		t.Errorf("firing_alerts keeps familiar's alerts: %s", q)
+	}
+}
+
+type leakyProm struct{ fakeProm }
+
+func (l *leakyProm) Query(_ context.Context, q string) ([]prom.Sample, error) {
+	return []prom.Sample{
+		{Labels: map[string]string{"namespace": "shop", "pod": "web"}, Value: 1},
+		{Labels: map[string]string{"namespace": "familiar-agents", "pod": "hermes-1"}, Value: 1},
+		{Labels: map[string]string{"source_namespace": "familiar-agents", "destination_namespace": "kube-system"}, Value: 1},
+		{Labels: map[string]string{"source_namespace": "shop", "destination_namespace": "familiar-system"}, Value: 1},
+		{Labels: map[string]string{"alertname": "GideonMemoryChanged"}, Value: 1},
+		{Labels: map[string]string{"alertname": "ModelGatePolicyRejections", "role": "watch-officer"}, Value: 1},
+		{Labels: map[string]string{"alertname": "KubePodCrashLooping", "namespace": "shop"}, Value: 1},
+	}, nil
+}
+
+// Results are filtered too, so a template that forgets the exclusion can't leak.
+func TestFamiliarFilteredFromResults(t *testing.T) {
+	h := &handlers{q: &leakyProm{}, now: time.Now}
+	var tool func(context.Context, json.RawMessage) (any, error)
+	for _, tl := range h.tools() {
+		if tl.Name == "query_metric" {
+			tool = tl.Handler
+		}
+	}
+	out, err := tool(context.Background(), json.RawMessage(`{"template":"firing_alerts"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(out)
+	for _, leak := range []string{"familiar-", "Gideon", "ModelGate"} {
+		if strings.Contains(string(b), leak) {
+			t.Errorf("result leaks %q: %s", leak, b)
+		}
+	}
+	if !strings.Contains(string(b), "KubePodCrashLooping") || !strings.Contains(string(b), `"count":2`) {
+		t.Errorf("filtered too much: %s", b)
+	}
+}

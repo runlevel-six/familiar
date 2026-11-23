@@ -36,6 +36,14 @@ all (visible) namespaces.
 
 No arbitrary PromQL: the agent picks a template, and parameters are validated.
 
+familiar's own namespaces (`familiar-*`) are hidden here too. Asking for one is
+an error, every template excludes them in the query itself, and any result
+series that still carries a `familiar-*` namespace (in `namespace`,
+`source_namespace` or `destination_namespace`) or one of familiar's own alerts
+(`Gideon*`, `ModelGate*`, `MemoryAuditor*`, `Hermes*`) is dropped before it is
+returned. The agent can't watch its own guardrails, or learn which of its own
+connections the network policies refuse.
+
 | Tool | Parameters |
 |---|---|
 | `query_metric` | `template` (required); `namespace`, `window` (`5m`, `15m`, `1h`, `6h`, `24h`; default `1h`), `limit` (1–20, default 10) for templates that take them |
@@ -46,17 +54,28 @@ No arbitrary PromQL: the agent picks a template, and parameters are validated.
 | `node_cpu_cores_used` | | CPU cores in use (all non-idle modes) |
 | `node_memory` | | Total, available and used fraction |
 | `node_memory_used_fraction` | | Fraction of memory in use |
-| `node_filesystems` | | Free fraction of each node filesystem |
+| `node_filesystems` | | Free fraction of each node filesystem (tmpfs and overlay excluded) |
 | `cpu_requests_vs_allocatable` | | Requested CPU of running pods, and allocatable CPU |
 | `pod_restarts` | `namespace`, `window` | Containers that restarted within the window |
 | `top_container_cpu` | `namespace`, `limit` | Pods using the most CPU |
 | `top_container_memory` | `namespace`, `limit` | Pods using the most memory (working set) |
 | `cpu_throttling` | `namespace` | Containers throttled in more than 25% of CFS periods over 5 minutes |
 | `pvc_usage` | `namespace` | Used fraction of each mounted PVC |
-| `firing_alerts` | | Firing alerts, except `Watchdog` and `InfoInhibitor` |
-| `targets_down` | | Scrape targets that are down |
+| `firing_alerts` | | Firing alerts, except `Watchdog`, `InfoInhibitor` and familiar's own |
+| `targets_down` | | Scrape targets that are down, outside `familiar-*` |
 | `backup_age_hours` | | Hours since the last successful backup of each kind (see `BACKUP_METRIC`) |
 | `kubelet_restarts` | `window` | kubelet restarts within the window |
+| `network_drops` | `namespace`, `window`, `limit` | Packets Cilium dropped, by source and destination namespace and reason |
+| `network_policy_denials` | `namespace`, `window`, `limit` | Flows a network policy denied, by source and destination namespace |
+| `network_flow_verdicts` | `namespace`, `window` | Flows by verdict (forwarded, dropped and so on); with `namespace`, also by source and destination namespace |
+| `dns_errors` | `namespace`, `window`, `limit` | DNS responses other than `No Error`, by source namespace and response code |
+| `cilium_health` | | Cilium agent checks: endpoints not ready, failing controllers, unreachable nodes and health endpoints, fullest BPF map, Hubble events lost and agent errors in the last hour |
+
+The network templates read Hubble's flow metrics, which need Hubble metrics
+enabled with namespace context (`labelsContext=source_namespace,destination_namespace`
+on `drop` and `flow`, `source_namespace` on `dns`); `cilium_health` needs the
+Cilium agent's own metrics scraped. Flows are counted, never listed: no pod
+names, IPs or ports.
 
 ### ceph-health
 
