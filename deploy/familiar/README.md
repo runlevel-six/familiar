@@ -6,9 +6,7 @@ network policies, ServiceMonitors and alert rules. Site values (cert-probe's
 hosts, Matrix IDs, the backup metric) are placeholders here and set by an overlay;
 see [`../overlays/example`](../overlays/example).
 
-Not yet applied on the author's cluster: the manifests pass a strict server-side
-dry run and are restricted-PSS compliant, and Phase 1 starts after the Phase 0
-prerequisites.
+Applied on the author's cluster on 2026-11-23, with Hermes under Kata.
 
 - [Deploy the watch officer](../../docs/how-to/deploy-phase-1.md)
 - [Manifests and policies](../../docs/reference/manifests.md): what each file and

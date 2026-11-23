@@ -1,7 +1,7 @@
 # familiar — design document
 
 > **Working title:** `familiar` (a wizard's always-present companion that watches and reports; rename freely)
-> **Status:** Draft v0.2. Phase 0 done (2026-11-23); Phase 1 manifests built and tested locally, not applied
+> **Status:** Draft v0.2. Phase 0 done (2026-11-23); Phase 1 deployed 2026-11-23, in its two-week run against the exit criteria
 > **Owner:** Jase
 > **Implementer:** Claude Code (phase by phase; each phase is a separate hand-off)
 > **Last updated:** 2026-11-23
@@ -309,14 +309,16 @@ Costs to plan for: requests for the server and node-agent; the node-agent's elev
 - Output: messages to me with findings, likely causes and *suggested* fixes (text only).
 
 ### Setup checklist
-- [ ] Console: create a `familiar` workspace, set a monthly spend limit, create one key per role
-- [ ] model-gate built, image pinned, budgets configured, audit log verified
-- [ ] Hermes image pinned by digest; Docker terminal backend disabled; tool-loop guardrails reviewed and the non-interactive hard stop **kept on**; skills vendored (no runtime skill marketplace installs)
-- [ ] Hermes pointed at model-gate as its Anthropic base URL via a named custom provider with `transport: anthropic_messages` (Q4); confirm auxiliary calls route through it too
-- [ ] Messaging gateway restricted to my user ID
-- [ ] CNPs applied and tested (agent cannot reach `api.anthropic.com` directly; cannot reach anything but its allowlist)
+- [x] Console: create a `familiar` workspace, set a monthly spend limit, create one key per role ($42/month, 2026-11-22; one role so far)
+- [x] model-gate built, image pinned, budgets configured, audit log verified (2026-11-23)
+- [x] Hermes image pinned by digest; Docker terminal backend disabled; tool-loop guardrails reviewed and the non-interactive hard stop **kept on**; skills vendored (no runtime skill marketplace installs)
+- [x] Hermes pointed at model-gate as its Anthropic base URL via a named custom provider with `transport: anthropic_messages` (Q4); confirm auxiliary calls route through it too (they needed `api_mode` in the provider entry as well; verified on Haiku 2026-11-23)
+- [x] Messaging gateway restricted to my user ID
+- [x] CNPs applied and tested (agent cannot reach `api.anthropic.com` directly; cannot reach anything but its allowlist): all 11 valid; tested from inside the Hermes VM, 2026-11-23
 
-### Exit criteria (run for at least 2 weeks)
+**Deployed 2026-11-23** (`deploy/familiar/`, real overlay in `local/`). Problems the first apply found, all fixed and recorded in `docs/how-to/deploy-phase-1.md`: Hermes' startup probe had no timeout (Kubernetes' 1 s default always failed; Kata labelled the kill "OOMKilled"), memory-auditor read the ConfigMap baseline through a symlink and always reported drift, side tasks used `/chat/completions` until the provider entry got `api_mode`, the data volume's root was owned by root (fsGroup only sets the group), Hermes warns about low disk under 2 GiB free (volume now 4 GiB; the resize needed a newer Rook CSI resizer), and Hermes' model-discovery probes made a warning fire constantly (now info).
+
+### Exit criteria (run for at least 2 weeks, from 2026-11-23)
 - [ ] Zero successful policy violations in Hubble/tool logs (attempts are recorded and reviewed)
 - [ ] At least one real issue correctly triaged, or a staged fault (e.g. a crashlooping test deployment, a near-expiry cert) diagnosed correctly
 - [ ] Memory diffs reviewed weekly; nothing unexplained

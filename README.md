@@ -25,9 +25,11 @@ to follow.
 
 ## Status
 
-**Phase 1, the read-only watch officer, is built and tested locally; not yet
-deployed.** model-gate, the four tool servers, memory-auditor and the manifests are
-done, and the whole stack has run against a live cluster from a laptop. Later
+**Phase 1, the read-only watch officer, has been running since 2026-11-23.**
+GIDEON runs in a Kata VM, talks to its owner over Matrix, and sweeps the cluster
+every four hours; model-gate, the four tool servers and memory-auditor are
+deployed with every guardrail verified from inside the agent's VM. It now runs for
+at least two weeks against the Phase 1 exit criteria before anything widens. Later
 phases, in order of risk, are in the [design document](docs/DESIGN.md):
 proposing changes as pull requests, a quarantined reader for untrusted input, and
 a builder that implements designs.

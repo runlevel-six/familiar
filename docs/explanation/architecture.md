@@ -86,7 +86,7 @@ control:
 ## Runtime
 
 Everything runs under the restricted Pod Security Standard: non-root, read-only
-root filesystems, all capabilities dropped. Hermes will run under Kata
+root filesystems, all capabilities dropped. Hermes runs under Kata
 Containers, so a container escape lands in a VM rather than on the node. Every
 familiar workload has a priority below every app on the node, so the kubelet
 evicts familiar first under pressure.

@@ -1,10 +1,8 @@
 # Deploy the watch officer (Phase 1)
 
-> **Not yet done on the author's cluster.** The manifests pass a strict
-> server-side dry run and are restricted-PSS compliant, and the whole stack has
-> run locally ([tutorial](../tutorials/run-the-watch-officer-locally.md)), but
-> Phase 1 starts only after the Phase 0 prerequisites are met. Expect this page
-> to change after the first real deployment.
+> **Done on the author's cluster on 2026-11-23.** The steps below are the ones
+> that worked; the problems the first deployment hit are at the end, under
+> "Notes from the first deployment".
 
 ## Before you start
 
