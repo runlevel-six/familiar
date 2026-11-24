@@ -33,6 +33,8 @@ what you need right now:
    testing Cilium's FQDN policies taught.
 4. [Budgets and model routing](explanation/budgets-and-model-routing.md).
 5. [What the local Hermes test showed](explanation/local-test-findings.md).
+6. [Red-teaming the watch officer](explanation/red-team-phase-1.md): five
+   prompt injections, read unattended, and what GIDEON did with each.
 
 ### Run it on a cluster
 
@@ -74,5 +76,6 @@ what you need right now:
 | [Network isolation](explanation/network-isolation.md) | Explanation | Default deny, one-hostname egress, Cilium's quiet failure modes |
 | [Budgets and model routing](explanation/budgets-and-model-routing.md) | Explanation | Three spend limits, which model does what, measured costs |
 | [What the local Hermes test showed](explanation/local-test-findings.md) | Explanation | Findings from running the stack locally, including Matrix |
+| [Red-teaming the watch officer](explanation/red-team-phase-1.md) | Explanation | Five injections via Kubernetes events, the evidence, caveats |
 | [Public repository, private details](explanation/public-and-private.md) | Explanation | Why site details stay out, and how the history was published |
 | [Design document](DESIGN.md) | Explanation | Goals, threat model, phases, decisions, open questions |

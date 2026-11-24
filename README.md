@@ -76,7 +76,7 @@ reader.
 | Tutorial | [Run the watch officer locally](docs/tutorials/run-the-watch-officer-locally.md) |
 | How-to | [Deploy the watch officer](docs/how-to/deploy-phase-1.md) · [Verify FQDN egress](docs/how-to/verify-fqdn-egress.md) · [Review and restore memory](docs/how-to/review-and-restore-memory.md) · [Stop everything](docs/how-to/stop-everything.md) · [Build the images](docs/how-to/build-and-publish-images.md) · [Keep site details private](docs/how-to/keep-site-details-private.md) |
 | Reference | [model-gate](docs/reference/model-gate.md) · [Tool servers](docs/reference/tool-servers.md) · [memory-auditor](docs/reference/memory-auditor.md) · [Manifests and policies](docs/reference/manifests.md) · [Alerts](docs/reference/alerts.md) |
-| Background | [How it's built](docs/explanation/architecture.md) · [Security model](docs/explanation/security-model.md) · [Network isolation](docs/explanation/network-isolation.md) · [Budgets and model routing](docs/explanation/budgets-and-model-routing.md) · [Local test findings](docs/explanation/local-test-findings.md) · [Design document](docs/DESIGN.md) |
+| Background | [How it's built](docs/explanation/architecture.md) · [Security model](docs/explanation/security-model.md) · [Network isolation](docs/explanation/network-isolation.md) · [Budgets and model routing](docs/explanation/budgets-and-model-routing.md) · [Local test findings](docs/explanation/local-test-findings.md) · [Red-team results](docs/explanation/red-team-phase-1.md) · [Design document](docs/DESIGN.md) |
 
 ## Development
 
