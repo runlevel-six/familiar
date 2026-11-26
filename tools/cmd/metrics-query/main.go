@@ -72,6 +72,20 @@ const (
 
 var operationalAlert = regexp.MustCompile(`^(` + operationalAlerts + `)$`)
 
+// selfPod and selfContainer are the only selectors inside familiar's
+// namespaces a template may use: the agent's own pod. self_usage sums over
+// them, so no familiar-* label leaves the server (hideFamiliar would drop it
+// anyway). Its CPU, memory and restarts say nothing about the guardrails; the
+// auditor, model-gate and the tool servers stay invisible (decided 2026-11-26).
+//
+// Hermes runs in a Kata VM, so cAdvisor sees no container inside it, only the
+// pod cgroup (container="", image="": the whole VM, which is what the host
+// pays). kube-state-metrics labels restarts by container.
+const (
+	selfPod       = `namespace="familiar-agents",pod=~"hermes-.*",container="",image=""`
+	selfContainer = `namespace="familiar-agents",pod=~"hermes-.*",container="hermes"`
+)
+
 // visibleFamiliarAlert reports whether a familiar alert is operational and
 // says nothing about the auditor.
 func visibleFamiliarAlert(l map[string]string) bool {
@@ -127,6 +141,14 @@ var (
 	reMetricName = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
 )
 
+// physDisk and physNIC limit host templates to physical devices: whole disks
+// (no partitions, device-mapper, loop or rbd) and wired or wireless NICs (no
+// Cilium, veth, lxc or bridge interfaces, which the network templates cover).
+const (
+	physDisk = `device=~"sd[a-z]+|vd[a-z]+|nvme[0-9]+n[0-9]+"`
+	physNIC  = `device=~"en.+|eth.+|wl.+|bond.+"`
+)
+
 func setBackupMetric(name string) error {
 	if !reMetricName.MatchString(name) {
 		return fmt.Errorf("BACKUP_METRIC %q is not a metric name", name)
@@ -138,6 +160,88 @@ func setBackupMetric(name string) error {
 var templates = map[string]tmpl{
 	"node_cpu_cores_used": {Description: "CPU cores in use on the node (all non-idle modes).", Rangeable: true,
 		Build: func(params) string { return `sum(rate(node_cpu_seconds_total{mode!="idle"}[5m]))` }},
+	"self_usage": {Description: "Your own pod (Hermes): CPU cores (5m rate) and memory working set bytes of its whole Kata VM as the host sees them, and total container restarts. The only thing inside familiar's namespaces you can measure.", Rangeable: true,
+		Build: func(params) string {
+			return strings.Join([]string{
+				`label_replace(sum(rate(container_cpu_usage_seconds_total{` + selfPod + `}[5m])), "check", "cpu_cores", "", "")`,
+				`label_replace(sum(container_memory_working_set_bytes{` + selfPod + `}), "check", "memory_working_set_bytes", "", "")`,
+				`label_replace(sum(kube_pod_container_status_restarts_total{` + selfContainer + `}), "check", "restarts", "", "")`,
+			}, " or ")
+		}},
+	// Host (node-exporter): what the node itself is doing, outside any pod.
+	"node_cpu_by_mode": {Description: "Node CPU cores in use by mode (user, system, iowait, softirq, ...; 5m rate). iowait is time waiting on disks, not computation.", Rangeable: true,
+		Build: func(params) string {
+			return `sum by (mode) (rate(node_cpu_seconds_total{mode!="idle"}[5m])) > 0.005`
+		}},
+	"node_pressure": {Description: "Pressure stall information (PSI), fraction of time over 5m that some tasks waited on CPU, I/O or memory ('waiting'), or that all non-idle tasks were stalled ('stalled'). Sustained I/O stalled above ~0.1 means storage is holding the node back.", Rangeable: true,
+		Build: func(params) string {
+			return strings.Join([]string{
+				`label_replace(sum(rate(node_pressure_cpu_waiting_seconds_total[5m])), "check", "cpu_waiting", "", "")`,
+				`label_replace(sum(rate(node_pressure_io_waiting_seconds_total[5m])), "check", "io_waiting", "", "")`,
+				`label_replace(sum(rate(node_pressure_io_stalled_seconds_total[5m])), "check", "io_stalled", "", "")`,
+				`label_replace(sum(rate(node_pressure_memory_waiting_seconds_total[5m])), "check", "memory_waiting", "", "")`,
+				`label_replace(sum(rate(node_pressure_memory_stalled_seconds_total[5m])), "check", "memory_stalled", "", "")`,
+			}, " or ")
+		}},
+	"disk_io": {Description: "Per physical disk over 5m: busy fraction, reads and writes per second, MB read and written per second, average read and write wait (ms), and average flush time (ms; a drive that really commits to the platter takes tens of ms).",
+		Build: func(params) string {
+			r := func(m string) string { return `sum by (device) (rate(` + m + `{` + physDisk + `}[5m]))` }
+			per := func(num, den, scale string) string { return `(` + scale + ` * ` + r(num) + ` / ` + r(den) + `)` }
+			return strings.Join([]string{
+				`label_replace(` + r("node_disk_io_time_seconds_total") + `, "check", "busy_fraction", "", "")`,
+				`label_replace(` + r("node_disk_reads_completed_total") + `, "check", "reads_per_s", "", "")`,
+				`label_replace(` + r("node_disk_writes_completed_total") + `, "check", "writes_per_s", "", "")`,
+				`label_replace(` + r("node_disk_read_bytes_total") + ` / 1e6, "check", "read_mb_per_s", "", "")`,
+				`label_replace(` + r("node_disk_written_bytes_total") + ` / 1e6, "check", "write_mb_per_s", "", "")`,
+				`label_replace(` + per("node_disk_read_time_seconds_total", "node_disk_reads_completed_total", "1000") + `, "check", "read_wait_ms", "", "")`,
+				`label_replace(` + per("node_disk_write_time_seconds_total", "node_disk_writes_completed_total", "1000") + `, "check", "write_wait_ms", "", "")`,
+				`label_replace(` + per("node_disk_flush_requests_time_seconds_total", "node_disk_flush_requests_total", "1000") + `, "check", "flush_ms", "", "")`,
+			}, " or ")
+		}},
+	"disk_busy_fraction": {Description: "Fraction of time each physical disk was busy (5m rate). 1.0 means saturated.", Rangeable: true,
+		Build: func(params) string {
+			return `sum by (device) (rate(node_disk_io_time_seconds_total{` + physDisk + `}[5m]))`
+		}},
+	"node_network_interfaces": {Description: "The node's physical network interfaces: up (1/0), link speed (MB/s), receive and transmit MB/s (5m rate), and errors, drops and carrier (link) changes within the window.",
+		Uses: []string{"window"},
+		Build: func(p params) string {
+			g := func(m string) string { return `max by (device) (` + m + `{` + physNIC + `})` }
+			r := func(m string) string { return `sum by (device) (rate(` + m + `{` + physNIC + `}[5m]))` }
+			inc := func(m string) string {
+				return `sum by (device) (increase(` + m + `{` + physNIC + `}[` + p.Window + `]))`
+			}
+			return strings.Join([]string{
+				`label_replace(` + g("node_network_up") + `, "check", "up", "", "")`,
+				`label_replace(` + g("node_network_speed_bytes") + ` / 1e6, "check", "speed_mb_per_s", "", "")`,
+				`label_replace(` + r("node_network_receive_bytes_total") + ` / 1e6, "check", "rx_mb_per_s", "", "")`,
+				`label_replace(` + r("node_network_transmit_bytes_total") + ` / 1e6, "check", "tx_mb_per_s", "", "")`,
+				`label_replace(` + inc("node_network_receive_errs_total") + `, "check", "rx_errors", "", "")`,
+				`label_replace(` + inc("node_network_transmit_errs_total") + `, "check", "tx_errors", "", "")`,
+				`label_replace(` + inc("node_network_receive_drop_total") + `, "check", "rx_drops", "", "")`,
+				`label_replace(` + inc("node_network_transmit_drop_total") + `, "check", "tx_drops", "", "")`,
+				`label_replace(` + inc("node_network_carrier_changes_total") + `, "check", "carrier_changes", "", "")`,
+			}, " or ")
+		}},
+	"node_tcp_health": {Description: "Node TCP/IP stack health over the window: share of TCP segments retransmitted, TCP timeouts, listen-queue overflows and drops, receive errors, packets the kernel dropped or squeezed in softirq, and conntrack table fill fraction (now).",
+		Uses: []string{"window"},
+		Build: func(p params) string {
+			inc := func(m string) string { return `sum(increase(` + m + `[` + p.Window + `]))` }
+			return strings.Join([]string{
+				`label_replace(` + inc("node_netstat_Tcp_RetransSegs") + ` / clamp_min(` + inc("node_netstat_Tcp_OutSegs") + `, 1), "check", "retransmit_fraction", "", "")`,
+				`label_replace(` + inc("node_netstat_TcpExt_TCPTimeouts") + `, "check", "tcp_timeouts", "", "")`,
+				`label_replace(` + inc("node_netstat_TcpExt_ListenOverflows") + `, "check", "listen_overflows", "", "")`,
+				`label_replace(` + inc("node_netstat_TcpExt_ListenDrops") + `, "check", "listen_drops", "", "")`,
+				`label_replace(` + inc("node_netstat_Tcp_InErrs") + `, "check", "tcp_in_errors", "", "")`,
+				`label_replace(` + inc("node_softnet_dropped_total") + `, "check", "softnet_dropped", "", "")`,
+				`label_replace(` + inc("node_softnet_times_squeezed_total") + `, "check", "softnet_squeezed", "", "")`,
+				`label_replace(sum(node_nf_conntrack_entries) / sum(node_nf_conntrack_entries_limit), "check", "conntrack_fill_fraction", "", "")`,
+			}, " or ")
+		}},
+	"node_temperatures": {Description: "Hardware temperatures (°C) by chip and sensor, with the sensor's critical threshold where it reports one.",
+		Build: func(params) string {
+			return `label_replace(max by (chip, sensor) (node_hwmon_temp_celsius), "check", "temp_c", "", "")` +
+				` or label_replace(max by (chip, sensor) (node_hwmon_temp_crit_celsius), "check", "crit_c", "", "")`
+		}},
 	"node_memory": {Description: "Node memory: total, available and used fraction.",
 		Build: func(params) string {
 			return `label_replace(node_memory_MemTotal_bytes, "metric", "total_bytes", "", "") or label_replace(node_memory_MemAvailable_bytes, "metric", "available_bytes", "", "") or label_replace(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes, "metric", "used_fraction", "", "")`

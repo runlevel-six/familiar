@@ -44,7 +44,7 @@ Assume the agent can become adversarial at any time, through prompt injection, m
 |---|---|---|---|
 | T1 | Exfiltrate the model API key | Key exists only in `model-gate`; never in agent env | Egress deny; workspace spend cap |
 | T2 | Exfiltrate cluster data | Tools return redacted summaries; egress allowlist | Hubble flow audit; model-gate rejects server-side tools that fetch from Anthropic's side |
-| T3 | Escalate in the cluster (create pods, read Secrets) | Agent pod has no SA token; tool servers hold narrow roles | RBAC excludes policy objects; cluster-read hides familiar's own namespaces (`familiar-*`), enforced in the tool server because RBAC can't subtract namespaces from a ClusterRole (2026-11-23; may be relaxed later) |
+| T3 | Escalate in the cluster (create pods, read Secrets) | Agent pod has no SA token; tool servers hold narrow roles | RBAC excludes policy objects; cluster-read hides familiar's own namespaces (`familiar-*`), enforced in the tool server because RBAC can't subtract namespaces from a ClusterRole (2026-11-23). Relaxed 2026-11-26 for one thing: metrics-query's `self_usage` reports the agent's own pod's CPU, memory and restarts, summed so no familiar label comes back |
 | T4 | Disable or modify its own guardrails | No write path to `familiar-*` namespaces, RBAC, CNPs | GitOps: guardrails live in a repo the agent can't merge to |
 | T5 | Persist an injection via memory | Memory snapshotted to git by a sidecar the agent doesn't control; diffs reviewed | Memory reset procedure |
 | T6 | Runaway spend / loop | Per-run and per-day token budgets in `model-gate` | Monthly workspace spend limit in Console |
@@ -161,7 +161,7 @@ Discovery (`local/docs/cluster-inventory.md`) showed the cluster lacks monitorin
 Order: A1, then A2 → A3, then A4 → A5 → A6. A7 and A8 can run in parallel. A3, A5 and A6 touch the node or the CNI, so they come after backups.
 
 **A1 follow-ups** (found while answering Q4–Q7; to be done in Phase 1 setup or earlier):
-- [x] Verify against a running Hermes that **all** model calls, including auxiliary ones, go through model-gate. **Done 2026-11-22** (local test, `tests/hermes-local/`): every call went through the gate, none elsewhere; auxiliary tasks set to `provider: main` + Haiku. No placeholder key needed.
+- [x] Verify against a running Hermes that **all** model calls, including auxiliary ones, go through model-gate. **Done 2026-11-22** (local test, `tests/hermes-local/`): every call went through the gate, none elsewhere; auxiliary tasks set to `provider: main` + Haiku. No placeholder key needed. **Corrected 2026-11-26:** with `main`, the gateway's runtime sends side tasks to `/chat/completions`, which the gate refuses (titles failed on 2026-11-24; the local test never passed that runtime). They now name `custom:model-gate`.
 - [x] Confirm the non-interactive hard stop. **Done 2026-11-22:** `approvals.cron_mode`, `single_query_mode` and `unattended_mode` = `deny` are it; with the terminal, file and code-execution toolsets disabled there is nothing left for them to stop.
 - [x] Remove `skill_manage`. **Done 2026-11-22:** `agent.disabled_toolsets: [skills]` removes it (with `skill_view`/`skills_list`); `skills/` is also mounted read-only.
 - [x] Read-only persistence points. **Done 2026-11-22:** `SOUL.md`, `hooks/`, `plugins/`, `scripts/` and `skills/` mounted read-only; Hermes runs normally. `cron/` can't be (the scheduler writes `jobs.json` every run); the `cronjob` toolset is disabled instead, and memory-auditor should watch `cron/jobs.json`.

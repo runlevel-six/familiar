@@ -56,17 +56,31 @@ report these but not investigate them. Detection alerts (`Gideon*`,
 policy alerts) stay hidden, and so does any operational alert whose labels
 mention the auditor: memory-auditor being down is a gap in detection.
 
+A second exception: the `self_usage` template measures the agent's own pod
+(`hermes-*` in `familiar-agents`) and nothing else there. It sums over the pod,
+so no `familiar-*` label is returned. Hermes runs in a Kata VM, so CPU and
+memory are the pod cgroup's, the whole VM as the host pays for it, which is
+more than `kubectl top` reports from inside the VM.
+
 | Tool | Parameters |
 |---|---|
 | `query_metric` | `template` (required); `namespace`, `window` (`5m`, `15m`, `1h`, `6h`, `24h`; default `1h`), `limit` (1–20, default 10) for templates that take them |
-| `metric_history` | `template` (`node_cpu_cores_used` or `node_memory_used_fraction`); `hours` (1–168, default 6). At most 120 points |
+| `metric_history` | `template` (`node_cpu_cores_used`, `node_memory_used_fraction`, `self_usage`, `node_cpu_by_mode`, `node_pressure` or `disk_busy_fraction`); `hours` (1–168, default 6). At most 120 points |
 
 | Template | Parameters | Returns |
 |---|---|---|
 | `node_cpu_cores_used` | | CPU cores in use (all non-idle modes) |
 | `node_memory` | | Total, available and used fraction |
+| `self_usage` | | The agent's own pod: CPU cores, memory working set (the whole Kata VM) and container restarts |
 | `node_memory_used_fraction` | | Fraction of memory in use |
 | `node_filesystems` | | Free fraction of each node filesystem (tmpfs and overlay excluded) |
+| `node_cpu_by_mode` | | CPU cores in use by mode (user, system, iowait, ...) |
+| `node_pressure` | | Pressure stall information: fraction of time tasks waited on CPU, I/O or memory, or were all stalled |
+| `disk_io` | | Per physical disk: busy fraction, reads and writes per second, MB/s each way, read and write wait, flush time |
+| `disk_busy_fraction` | | Busy fraction of each physical disk |
+| `node_network_interfaces` | `window` | Physical NICs: up, link speed, MB/s each way; errors, drops and carrier changes within the window |
+| `node_tcp_health` | `window` | TCP retransmit share, timeouts, listen overflows and drops, receive errors, softirq drops, conntrack fill |
+| `node_temperatures` | | Hardware temperatures by chip and sensor, with critical thresholds |
 | `cpu_requests_vs_allocatable` | | Requested CPU of running pods, and allocatable CPU |
 | `pod_restarts` | `namespace`, `window` | Containers that restarted within the window |
 | `top_container_cpu` | `namespace`, `limit` | Pods using the most CPU |

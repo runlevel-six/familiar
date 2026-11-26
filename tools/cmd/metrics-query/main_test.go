@@ -141,6 +141,27 @@ func TestFamiliarHidden(t *testing.T) {
 	}
 }
 
+// self_usage is the one window into familiar's namespaces: only the Hermes
+// pod, always summed so no familiar-* label comes back.
+func TestSelfUsageScope(t *testing.T) {
+	for name, tm := range templates {
+		q := tm.Build(params{Window: "1h", Limit: 10})
+		n := strings.Count(q, `namespace="familiar-`)
+		if name != "self_usage" {
+			if n != 0 {
+				t.Errorf("%s selects a familiar namespace: %s", name, q)
+			}
+			continue
+		}
+		if n != 3 || strings.Count(q, selfPod) != 2 || strings.Count(q, selfContainer) != 1 {
+			t.Errorf("self_usage selects more than the Hermes container: %s", q)
+		}
+		if strings.Contains(q, "sum by") {
+			t.Errorf("self_usage keeps labels: %s", q)
+		}
+	}
+}
+
 type leakyProm struct{ fakeProm }
 
 func (l *leakyProm) Query(_ context.Context, q string) ([]prom.Sample, error) {

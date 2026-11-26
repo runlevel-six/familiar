@@ -24,14 +24,18 @@ model:
   default: claude-sonnet-5-5
 
 # Side tasks (titles, compression, approval classifier, MCP helper) go
-# through model-gate too ("main" = the main provider), on Haiku. "auto"
-# would use the main model; explicit is checkable.
+# through model-gate too, on Haiku. "auto" would use the main model; explicit
+# is checkable. Named, not "main": in v0.23.3, "main" plus the runtime the
+# gateway passes in (provider "custom") sends side tasks to /chat/completions
+# whatever api_mode says, and model-gate refuses it. Titles failed that way
+# on 2026-11-24, and compression would have too. Reproduced with the pinned
+# image, and the named provider fixes every task (2026-11-26).
 auxiliary:
-  approval:         {provider: main, model: claude-haiku-5-5}
-  compression:      {provider: main, model: claude-haiku-5-5}
-  title_generation: {provider: main, model: claude-haiku-5-5}
-  mcp:              {provider: main, model: claude-haiku-5-5}
-  vision:           {provider: main, model: claude-haiku-5-5}
+  approval:         {provider: custom:model-gate, model: claude-haiku-5-5}
+  compression:      {provider: custom:model-gate, model: claude-haiku-5-5}
+  title_generation: {provider: custom:model-gate, model: claude-haiku-5-5}
+  mcp:              {provider: custom:model-gate, model: claude-haiku-5-5}
+  vision:           {provider: custom:model-gate, model: claude-haiku-5-5}
 
 # No fallback to any other provider.
 fallback_providers: []
