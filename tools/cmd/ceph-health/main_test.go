@@ -59,3 +59,18 @@ func TestPoolsJoinNames(t *testing.T) {
 		t.Fatalf("pool: %v", p)
 	}
 }
+
+func TestOSDsCarryTheirDisk(t *testing.T) {
+	f := fake{
+		`ceph_osd_up`:                {s(1, "ceph_daemon", "osd.0"), s(1, "ceph_daemon", "osd.1")},
+		`ceph_disk_occupation_human`: {s(1, "ceph_daemon", "osd.1", "device", "/dev/sdc"), s(1, "ceph_daemon", "osd.9", "device", "/dev/sdz")},
+	}
+	out, err := (&handlers{q: f, now: time.Now}).osds(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := out.(map[string]any)["osds"].([]map[string]any)
+	if len(o) != 2 || o[1]["device"] != "sdc" || o[0]["device"] != nil {
+		t.Fatalf("osds: %v", o)
+	}
+}

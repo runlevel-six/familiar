@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/runlevel-six/familiar/tools/internal/mcp"
@@ -113,6 +114,17 @@ func (h *handlers) osds(ctx context.Context, args json.RawMessage) (any, error) 
 			row(x.Labels["ceph_daemon"])[key] = x.Value
 		}
 	}
+	// The disk each OSD sits on, as Ceph itself reports it, so the OSD can be
+	// matched with the host's per-disk metrics (metrics-query disk_io).
+	occ, err := h.q.Query(ctx, `ceph_disk_occupation_human`)
+	if err != nil {
+		return nil, err
+	}
+	for _, x := range occ {
+		if d := strings.TrimPrefix(x.Labels["device"], "/dev/"); d != "" && rows[x.Labels["ceph_daemon"]] != nil {
+			rows[x.Labels["ceph_daemon"]]["device"] = d
+		}
+	}
 	var out []map[string]any
 	for _, r := range rows {
 		out = append(out, r)
@@ -164,7 +176,7 @@ func (h *handlers) tools() []mcp.Tool {
 		{Name: "ceph_status", Title: "Ceph status", InputSchema: empty, Handler: h.status,
 			Description: "Overall Ceph health, active health checks, mon quorum, OSD up/in counts, placement group states and capacity. On a single-host cluster, replicas are spread across OSDs rather than hosts, so the host itself is a single point of failure."},
 		{Name: "ceph_osds", Title: "Ceph OSDs", InputSchema: empty, Handler: h.osds,
-			Description: "Per-OSD up/in state, fullness, size and apply/commit latency."},
+			Description: "Per-OSD up/in state, fullness, size, apply/commit latency, and the host disk it sits on (device, e.g. sdc: the name metrics-query disk_io uses)."},
 		{Name: "ceph_pools", Title: "Ceph pools", InputSchema: empty, Handler: h.pools,
 			Description: "Per-pool used fraction, stored bytes and space still available."},
 	}

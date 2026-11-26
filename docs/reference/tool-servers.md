@@ -138,7 +138,7 @@ names, IPs or ports.
 | Tool | Returns |
 |---|---|
 | `ceph_status` | Overall health, active health checks, monitor quorum, OSD up/in counts, placement group states, capacity |
-| `ceph_osds` | Per OSD: up/in, fullness, size, apply and commit latency |
+| `ceph_osds` | Per OSD: up/in, fullness, size, apply and commit latency, and the host disk it sits on (`device`, as `disk_io` names it; from Ceph's `ceph_disk_occupation_human`) |
 | `ceph_pools` | Per pool: used fraction, stored bytes, space available |
 
 ### cert-probe
