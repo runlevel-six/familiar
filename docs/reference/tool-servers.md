@@ -65,7 +65,7 @@ more than `kubectl top` reports from inside the VM.
 | Tool | Parameters |
 |---|---|
 | `query_metric` | `template` (required); `namespace`, `window` (`5m`, `15m`, `1h`, `6h`, `24h`; default `1h`), `limit` (1–20, default 10) for templates that take them |
-| `metric_history` | `template` (`node_cpu_cores_used`, `node_memory_used_fraction`, `self_usage`, `node_cpu_by_mode`, `node_pressure` or `disk_busy_fraction`); `hours` (1–168, default 6). At most 120 points |
+| `metric_history` | `template` (`node_cpu_cores_used`, `node_memory_used_fraction`, `self_usage`, `node_cpu_by_mode`, `node_pressure`, `disk_busy_fraction`, `lan_devices_down` or `wan_latency_ms`); `hours` (1–168, default 6). At most 120 points |
 
 | Template | Parameters | Returns |
 |---|---|---|
@@ -96,6 +96,35 @@ more than `kubectl top` reports from inside the VM.
 | `network_flow_verdicts` | `namespace`, `window` | Flows by verdict (forwarded, dropped and so on); with `namespace`, also by source and destination namespace |
 | `dns_errors` | `namespace`, `window`, `limit` | DNS responses other than `No Error`, by source namespace and response code |
 | `cilium_health` | | Cilium agent checks: endpoints not ready, failing controllers, unreachable nodes and health endpoints, fullest BPF map, Hubble events lost and agent errors in the last hour |
+
+### LAN templates
+
+These read exporters that run outside familiar (a site's own deployment; see
+the overlay): blackbox-exporter probes with `device` and `group` labels on
+jobs `lan-ping`, `lan-tcp` and `lan-dns`, unpoller (UniFi) and
+adguard-exporter (AdGuard Home). The agent gets no LAN access; the exporters
+hold the credentials.
+
+| Template | Parameters | Returns |
+|---|---|---|
+| `lan_reachability` | `window` | Per probed device and group: up now, ping round trip, TCP or DNS probe time, and the fraction of probes failed in the window (when above 0) |
+| `lan_devices_down` | | Probed devices failing, by group (history) |
+| `wan_health` | `window` | WAN up, latency and availability from the gateway; ping to the internet; internet drops in the window; last speed test and its age |
+| `wan_latency_ms` | | WAN latency from the gateway (history) |
+| `dns_health` | `window` | AdGuard Home: running and version, protection, average processing time, queries and blocked fraction, each upstream's average response time, exporter errors, and the DNS probe |
+| `unifi_devices` | | Gateway, switches and access points: uptime, CPU, memory, temperatures, firmware and Network application updates |
+| `switch_port_errors` | `window`, `limit` | Ports with errors or drops in the window, by device and port |
+| `wifi_health` | `limit` | Per radio: channel utilization, stations, satisfaction; the Wi-Fi clients with the lowest satisfaction, with signal |
+| `top_clients_traffic` | `limit` | Clients moving the most data now |
+
+Every LAN template aggregates to named labels, so MAC addresses, BSSIDs and
+serial numbers never come back. **Client names are set by the devices
+themselves**, so anyone on the LAN controls them: in `wifi_health` and
+`top_clients_traffic` the `name` label keeps only letters, digits, spaces and
+`.-_'’()#&+`, at most 40 characters (anything else becomes `_`). No link,
+markup, control or invisible character survives; plain words still can,
+which is why the agent treats tool output as data. Templates with such labels
+have no history, because `metric_history` doesn't clean labels.
 
 The network templates read Hubble's flow metrics, which need Hubble metrics
 enabled with namespace context (`labelsContext=source_namespace,destination_namespace`
