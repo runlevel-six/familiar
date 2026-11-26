@@ -92,12 +92,32 @@ func parseStat(b []byte) (proc, error) {
 	}, nil
 }
 
-// parseCgroup returns the cgroup v2 path ("0::/path").
+// ownCgroup marks a process at the root of this server's own cgroup
+// namespace: the server itself (see parseCgroup).
+const ownCgroup = "(own)"
+
+// parseCgroup returns the cgroup v2 path ("0::/path"). The pod has its own
+// cgroup namespace, so the kernel shows other processes' paths relative to
+// it, with a "/.." for each level above (cgroup_namespaces(7)):
+// "/../../system.slice/kubelet.service". Those are stripped back to the
+// host path. A path of exactly "/" is the namespace's own root, which only
+// this server's container uses: ownCgroup.
 func parseCgroup(b []byte) string {
 	for _, line := range strings.Split(string(b), "\n") {
-		if p, ok := strings.CutPrefix(line, "0::"); ok {
-			return p
+		p, ok := strings.CutPrefix(line, "0::")
+		if !ok {
+			continue
 		}
+		if p == "/" {
+			return ownCgroup
+		}
+		for strings.HasPrefix(p, "/../") {
+			p = p[3:]
+		}
+		if p == "/.." {
+			p = "/"
+		}
+		return p
 	}
 	return ""
 }

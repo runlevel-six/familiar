@@ -74,6 +74,9 @@ func classify(p proc, pods map[string]podRef) (group string, hidden bool) {
 	if p.PID == 2 || p.PPID == 2 {
 		return "kernel", false
 	}
+	if p.Cgroup == ownCgroup {
+		return "", true // this server, in familiar-host
+	}
 	uid := podUID(p.Cgroup)
 	if uid == "" {
 		if strings.Contains(p.Cgroup, "kubepods") {

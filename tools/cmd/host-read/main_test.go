@@ -63,6 +63,10 @@ func setup(t *testing.T, kerr error) (*handlers, string) {
 	fakeProc(t, root, 500, 1, "rsync", 'D', 20, "/user.slice/user-1000.slice/session-3.scope")
 	fakeProc(t, root, 600, 1, "x) (see http://evil.example", 'S', 0, "/system.slice/evil.service")
 	fakeProc(t, root, 700, 1, "mystery", 'S', 9000, fmt.Sprintf(pod, "eeee_ffff"))
+	// As seen from inside the pod's cgroup namespace (cgroup_namespaces(7)):
+	fakeProc(t, root, 800, 1, "containerd", 'S', 0, "/../../../system.slice/containerd.service")
+	fakeProc(t, root, 801, 1, "host-read", 'S', 0, "/")
+	fakeProc(t, root, 802, 1, "redis", 'S', 0, "/../../.."+fmt.Sprintf(pod, "aaaa_bbbb"))
 	calls := 0
 	t0 := time.Unix(1_800_000_000, 0)
 	h := &handlers{
@@ -101,12 +105,12 @@ func TestHidesFamiliarAndUnknownPods(t *testing.T) {
 	h, _ := setup(t, nil)
 	rows := call(t, h, `{"limit":40}`)["rows"].([]row)
 	got := names(rows)
-	for _, bad := range []string{"qemu", "familiar", "mystery"} {
+	for _, bad := range []string{"qemu", "familiar", "mystery", "host-read", "@other"} {
 		if strings.Contains(got, bad) {
 			t.Errorf("%q visible: %s", bad, got)
 		}
 	}
-	for _, want := range []string{"nginx@pod shop/web-1", "kube-apiserver@pod kube-system/kube-apiserver-n1", "kubelet@systemd kubelet.service", "rsync@user session", "kworker_u8_1@kernel", "systemd@systemd (init)"} {
+	for _, want := range []string{"nginx@pod shop/web-1", "kube-apiserver@pod kube-system/kube-apiserver-n1", "kubelet@systemd kubelet.service", "rsync@user session", "kworker_u8_1@kernel", "systemd@systemd (init)", "containerd@systemd containerd.service", "redis@pod shop/web-1"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %s in %s", want, got)
 		}
