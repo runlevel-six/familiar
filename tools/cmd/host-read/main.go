@@ -54,8 +54,8 @@ func (h *handlers) tools() []mcp.Tool {
 		}),
 		Handler: h.topProcesses,
 	}, {
-		Name: "volume_io", Title: "Disk I/O per Kubernetes volume",
-		Description: "Which Kubernetes volumes (Ceph RBD, by namespace/claim, with the pods that mount them) are reading and writing, over about two seconds: writes and reads per second, MB/s each way, average write wait (ms) and busy fraction. Use it to find which workload is loading Ceph. sort: writes (default), reads or busy. Volumes of familiar's own namespaces are not shown.",
+		Name: "volume_io", Title: "Disk I/O and write latency per PVC and pod",
+		Description: "Per-PVC and per-pod disk IO (I/O) and write latency on Ceph: which PersistentVolumeClaims (Ceph RBD volumes, by namespace/claim, with the pods that mount them) are reading and writing, over about two seconds: writes and reads per second, MB/s each way, average write wait or latency (ms) and busy fraction. Use it to find which app or workload is writing to Ceph and how long its writes wait. sort: writes (default), reads or busy. Volumes of familiar's own namespaces are not shown.",
 		InputSchema: mcp.Object(map[string]any{
 			"sort":  mcp.Enum("What to rank by (default writes)", "writes", "reads", "busy"),
 			"limit": mcp.Int("How many rows (default 15)", 1, 40),

@@ -181,7 +181,7 @@ func (h *handlers) tools() []mcp.Tool {
 		{Name: "ceph_osds", Title: "Ceph OSDs", InputSchema: empty, Handler: h.osds,
 			Description: "Per-OSD up/in state, fullness, size, apply/commit latency, and the host disk it sits on (device, e.g. sdc: the name metrics-query disk_io uses)."},
 		{Name: "ceph_pools", Title: "Ceph pools", InputSchema: empty, Handler: h.pools,
-			Description: "Per pool: used fraction, stored bytes, space still available, and client reads and writes over the last 5 minutes (ops/s and MB/s). For which volume or pod does the I/O, see host-read volume_io."},
+			Description: "Per pool: used fraction, stored bytes, space still available, and client IO throughput, reads and writes over the last 5 minutes (ops/s and MB/s). For which PVC, app or pod does the IO, see host-read volume_io."},
 	}
 }
 
