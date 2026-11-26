@@ -48,7 +48,7 @@ spec:
       securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
       containers:
         - name: host-read
-          image: ghcr.io/runlevel-six/familiar-tools@sha256:e66d7a9393cfe15896aa474c8789908cf450a9e9a855cd26b611626b46248732 # 0.7.3-a80790a
+          image: ghcr.io/runlevel-six/familiar-tools@sha256:2dbb18aca33053c101010a6740e010ebe94d850d10f104f45a1265f96f4c74af # 0.8.0-a797a88
           command: ["/host-read"]
           ports: [{name: mcp, containerPort: 8080}]
           securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
