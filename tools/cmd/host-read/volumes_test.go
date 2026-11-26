@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -98,5 +100,27 @@ func TestNoRBDIsEmpty(t *testing.T) {
 	h.sys = t.TempDir()
 	if rows := volCall(t, h, `{}`)["rows"].([]volRow); len(rows) != 0 {
 		t.Fatalf("rows without rbd: %+v", rows)
+	}
+}
+
+func TestVolumeInfoMetric(t *testing.T) {
+	h := setupVolumes(t, nil)
+	rec := httptest.NewRecorder()
+	h.serveVolumeInfo(rec, httptest.NewRequest("GET", "/metrics", nil))
+	body := rec.Body.String()
+	if !strings.Contains(body, `familiar_rbd_volume_info{device="rbd0",claim_namespace="shop",claim="data-web-1"} 1`) ||
+		!strings.Contains(body, "familiar_rbd_volume_lookup_ok 1") {
+		t.Errorf("metrics:\n%s", body)
+	}
+	for _, bad := range []string{"familiar-agents", "hermes", "rbd1", "rbd2"} { // familiar's, unknown
+		if strings.Contains(body, bad) {
+			t.Errorf("%q published:\n%s", bad, body)
+		}
+	}
+	h = setupVolumes(t, errors.New("apiserver down"))
+	rec = httptest.NewRecorder()
+	h.serveVolumeInfo(rec, httptest.NewRequest("GET", "/metrics", nil))
+	if b := rec.Body.String(); strings.Contains(b, "familiar_rbd_volume_info{") || !strings.Contains(b, "familiar_rbd_volume_lookup_ok 0") {
+		t.Errorf("published without a volume index:\n%s", b)
 	}
 }

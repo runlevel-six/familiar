@@ -66,7 +66,7 @@ more than `kubectl top` reports from inside the VM.
 | Tool | Parameters |
 |---|---|
 | `query_metric` | `template` (required); `namespace`, `window` (`5m`, `15m`, `1h`, `6h`, `24h`; default `1h`), `limit` (1–20, default 10) for templates that take them |
-| `metric_history` | `template` (`node_cpu_cores_used`, `node_memory_used_fraction`, `self_usage`, `node_cpu_by_mode`, `node_pressure`, `disk_busy_fraction`, `lan_devices_down` or `wan_latency_ms`); `hours` (1–168, default 6). At most 120 points |
+| `metric_history` | `template` (`node_cpu_cores_used`, `node_memory_used_fraction`, `self_usage`, `node_cpu_by_mode`, `node_pressure`, `disk_busy_fraction`, `lan_devices_down`, `wan_latency_ms`, `volume_writes_per_s` or `volume_write_wait_ms`); `hours` (1–168, default 6). At most 120 points |
 
 | Template | Parameters | Returns |
 |---|---|---|
@@ -79,6 +79,9 @@ more than `kubectl top` reports from inside the VM.
 | `node_pressure` | | Pressure stall information: fraction of time tasks waited on CPU, I/O or memory, or were all stalled |
 | `disk_io` | | Per physical disk: busy fraction, reads and writes per second, MB/s each way, read and write wait, flush time |
 | `disk_busy_fraction` | | Busy fraction of each physical disk |
+| `volume_io_over_window` | `window`, `limit` | Per claim (Ceph RBD volume; mapping from `host-read`) over the window: writes and reads per second, MB written per second, average write wait, busy fraction; busiest writers first |
+| `volume_writes_per_s` | | Writes per second per claim, the 8 busiest at each point (history) |
+| `volume_write_wait_ms` | | Average write wait per claim, the 8 slowest at each point (history) |
 | `node_network_interfaces` | `window` | Physical NICs: up, link speed, MB/s each way; errors, drops and carrier changes within the window |
 | `node_tcp_health` | `window` | TCP retransmit share, timeouts, listen overflows and drops, receive errors, softirq drops, conntrack fill |
 | `node_temperatures` | | Hardware temperatures by chip and sensor, with critical thresholds |
@@ -165,6 +168,12 @@ claim through the PersistentVolume's CSI attributes (`pool`, `imageName`).
 Volumes of `familiar-*` claims are hidden, and so is any image it can't map;
 if listing PersistentVolumes fails, every volume is hidden.
 
+The same mapping is published for Prometheus on a separate port (`:9100`,
+`METRICS_LISTEN`; only Prometheus may reach it) as
+`familiar_rbd_volume_info{device, claim_namespace, claim} 1`, with the same
+omissions, plus `familiar_rbd_volume_lookup_ok`. `metrics-query` joins it to
+node-exporter's `rbdN` counters for per-volume history.
+
 It runs in the host's PID namespace, in its own `familiar-host` namespace
 (the only familiar namespace whose Pod Security level allows that), as a
 non-root user with no capabilities, a read-only root filesystem, no hostPath
@@ -190,6 +199,7 @@ they're cleaned like LAN client names (15 characters at most).
 | `TARGET` | cert-probe | `traefik.traefik.svc:443` | Where to connect; each host is sent as the TLS server name |
 | `HOSTS` | cert-probe | | Comma-separated hosts to probe |
 | `PROC_ROOT` | host-read | `/proc` | Where procfs is mounted (tests) |
+| `METRICS_LISTEN` | host-read | `:9100` | Where Prometheus scrapes the RBD-to-claim mapping |
 | `KUBE_DEV_PROXY_URL` | cluster-read, host-read | | Local testing only: use a `kubectl proxy` instead of the pod's ServiceAccount |
 
 ## Guardrails in every server

@@ -168,6 +168,7 @@ func (l *leakyProm) Query(_ context.Context, q string) ([]prom.Sample, error) {
 	return []prom.Sample{
 		{Labels: map[string]string{"namespace": "shop", "pod": "web"}, Value: 1},
 		{Labels: map[string]string{"namespace": "familiar-agents", "pod": "hermes-1"}, Value: 1},
+		{Labels: map[string]string{"claim_namespace": "familiar-agents", "claim": "hermes-data"}, Value: 1},
 		{Labels: map[string]string{"source_namespace": "familiar-agents", "destination_namespace": "kube-system"}, Value: 1},
 		{Labels: map[string]string{"source_namespace": "shop", "destination_namespace": "familiar-system"}, Value: 1},
 		{Labels: map[string]string{"alertname": "GideonMemoryChanged"}, Value: 1},

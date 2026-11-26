@@ -5,6 +5,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -227,4 +230,41 @@ func (h *handlers) volumeIO(ctx context.Context, args json.RawMessage) (any, err
 		out["note"] = "pod lookup failed, so pods are not named"
 	}
 	return out, nil
+}
+
+// serveVolumeInfo publishes, for Prometheus, which claim each mapped RBD
+// device belongs to, so node-exporter's per-device counters (rbdN) can be
+// joined to claims over time (metrics-query volume templates). The same
+// rule as volume_io: familiar's volumes and images it can't map are left
+// out, and if listing PersistentVolumes fails nothing is published.
+func (h *handlers) serveVolumeInfo(w http.ResponseWriter, r *http.Request) {
+	images, err := h.pvs.lookup(r.Context())
+	devs, derr := readRBD(h.sys)
+	ok := err == nil && derr == nil
+	var b strings.Builder
+	b.WriteString("# HELP familiar_rbd_volume_info The PersistentVolumeClaim each mapped RBD device belongs to (familiar's own omitted).\n")
+	b.WriteString("# TYPE familiar_rbd_volume_info gauge\n")
+	if ok {
+		ids := make([]string, 0, len(devs))
+		for id := range devs {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			d := devs[id]
+			claim, known := images[d.Pool+"/"+d.Image]
+			if !known || strings.HasPrefix(claim.Namespace, hiddenNamespacePrefix) {
+				continue
+			}
+			fmt.Fprintf(&b, "familiar_rbd_volume_info{device=%q,claim_namespace=%q,claim=%q} 1\n", "rbd"+id, claim.Namespace, claim.Name)
+		}
+	}
+	b.WriteString("# HELP familiar_rbd_volume_lookup_ok 1 if the RBD-to-claim mapping could be built.\n# TYPE familiar_rbd_volume_lookup_ok gauge\n")
+	if ok {
+		b.WriteString("familiar_rbd_volume_lookup_ok 1\n")
+	} else {
+		b.WriteString("familiar_rbd_volume_lookup_ok 0\n")
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	_, _ = io.WriteString(w, b.String())
 }

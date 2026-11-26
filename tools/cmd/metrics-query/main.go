@@ -144,6 +144,19 @@ var (
 	reMetricName = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
 )
 
+// volInfo maps RBD devices to claims; volRate and volWait express a
+// node-exporter disk counter per claim. A device renumbered after a pod
+// moves maps to its new claim from the next scrape on.
+const volInfo = `max by (device, claim_namespace, claim) (familiar_rbd_volume_info)`
+
+func volRate(metric, window string) string {
+	return `sum by (claim_namespace, claim) (sum by (device) (rate(` + metric + `{device=~"rbd[0-9]+"}[` + window + `])) * on (device) group_left (claim_namespace, claim) ` + volInfo + `)`
+}
+
+func volWait(window string) string {
+	return `(` + volRate("node_disk_write_time_seconds_total", window) + ` / ` + volRate("node_disk_writes_completed_total", window) + `) * 1000`
+}
+
 // physDisk and physNIC limit host templates to physical devices: whole disks
 // (no partitions, device-mapper, loop or rbd) and wired or wireless NICs (no
 // Cilium, veth, lxc or bridge interfaces, which the network templates cover).
@@ -416,6 +429,25 @@ var templates = map[string]tmpl{
 			return `label_replace(` + to + ` / 1e6 and on (` + by + `) ` + top + `, "check", "to_client_mb_per_s", "", "")` +
 				` or label_replace(` + from + ` / 1e6 and on (` + by + `) ` + top + `, "check", "from_client_mb_per_s", "", "")`
 		}},
+	// Per-volume history: node-exporter's rbdN counters joined to claims by
+	// host-read's familiar_rbd_volume_info (which omits familiar's volumes).
+	"volume_io_over_window": {Description: "Per PVC (Ceph RBD volume, by claim_namespace/claim) over the window: writes and reads per second, MB written per second, average write wait or latency (ms) and busy fraction; the busiest writers first. For the last few seconds with pod names, use host-read volume_io.",
+		Uses: []string{"window", "limit"},
+		Build: func(p params) string {
+			top := fmt.Sprintf(`topk(%d, %s)`, p.Limit, volRate("node_disk_writes_completed_total", p.Window))
+			and := ` and on (claim_namespace, claim) ` + top
+			return strings.Join([]string{
+				`label_replace(` + volRate("node_disk_writes_completed_total", p.Window) + and + `, "check", "write_ops_per_s", "", "")`,
+				`label_replace(` + volRate("node_disk_reads_completed_total", p.Window) + and + `, "check", "read_ops_per_s", "", "")`,
+				`label_replace(` + volRate("node_disk_written_bytes_total", p.Window) + ` / 1e6` + and + `, "check", "write_mb_per_s", "", "")`,
+				`label_replace(` + volWait(p.Window) + and + `, "check", "avg_write_wait_ms", "", "")`,
+				`label_replace(` + volRate("node_disk_io_time_seconds_total", p.Window) + and + `, "check", "busy_fraction", "", "")`,
+			}, " or ")
+		}},
+	"volume_writes_per_s": {Description: "Writes per second per PVC (5m rate), the 8 busiest at each point.", Rangeable: true,
+		Build: func(params) string { return `topk(8, ` + volRate("node_disk_writes_completed_total", "5m") + `)` }},
+	"volume_write_wait_ms": {Description: "Average write wait per PVC (ms, 5m), the 8 slowest at each point among volumes that wrote.", Rangeable: true,
+		Build: func(params) string { return `topk(8, ` + volWait("5m") + `)` }},
 	"cilium_health": {Description: "Cilium agent health: endpoints not ready (by state), failing controllers, unreachable nodes and health endpoints, the fullest BPF map (fraction), Hubble events lost and agent errors in the last hour.",
 		Build: func(params) string {
 			return strings.Join([]string{
@@ -445,7 +477,7 @@ func hideFamiliar(samples []prom.Sample) []prom.Sample {
 	alerts := regexp.MustCompile(`^(` + familiarAlerts + `)$`)
 	for _, s := range samples {
 		l := s.Labels
-		hidden := hiddenNamespace(l["namespace"]) || hiddenNamespace(l["source_namespace"]) ||
+		hidden := hiddenNamespace(l["namespace"]) || hiddenNamespace(l["claim_namespace"]) || hiddenNamespace(l["source_namespace"]) ||
 			hiddenNamespace(l["destination_namespace"]) || alerts.MatchString(l["alertname"])
 		if hidden && !visibleFamiliarAlert(l) {
 			continue

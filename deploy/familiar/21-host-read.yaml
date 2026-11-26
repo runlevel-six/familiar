@@ -50,17 +50,17 @@ spec:
         - name: host-read
           image: ghcr.io/runlevel-six/familiar-tools@sha256:084f6da12e6588c176211ee94d7882223a5ab4e34dc7e55e583cb96f4c48335e # 0.8.1-4db2a4e
           command: ["/host-read"]
-          ports: [{name: mcp, containerPort: 8080}]
+          ports: [{name: mcp, containerPort: 8080}, {name: metrics, containerPort: 9100}]
           securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
           resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 96Mi}}
           readinessProbe: {httpGet: {path: /healthz, port: mcp}, periodSeconds: 15}
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: host-read, namespace: familiar-host}
+metadata: {name: host-read, namespace: familiar-host, labels: {app.kubernetes.io/name: host-read}}
 spec:
   selector: {app.kubernetes.io/name: host-read}
-  ports: [{name: mcp, port: 8080, targetPort: mcp}]
+  ports: [{name: mcp, port: 8080, targetPort: mcp}, {name: metrics, port: 9100, targetPort: metrics}]
 ---
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
@@ -82,3 +82,19 @@ spec:
             k8s:io.kubernetes.pod.namespace: familiar-agents
             familiar/role: watch-officer
       toPorts: [{ports: [{port: "8080", protocol: TCP}]}]
+    # Prometheus scrapes the RBD-to-claim mapping (metrics port only, never MCP).
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: monitoring
+            app.kubernetes.io/name: prometheus
+      toPorts: [{ports: [{port: "9100", protocol: TCP}]}]
+---
+# familiar_rbd_volume_info: which claim each RBD device belongs to, so
+# metrics-query can keep per-volume history from node-exporter's counters.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata: {name: host-read, namespace: monitoring}
+spec:
+  namespaceSelector: {matchNames: [familiar-host]}
+  selector: {matchLabels: {app.kubernetes.io/name: host-read}}
+  endpoints: [{port: metrics, interval: 60s}]
