@@ -116,7 +116,7 @@ hold the credentials.
 | `unifi_devices` | | Gateway, switches and access points: uptime, CPU, memory, temperatures, firmware and Network application updates |
 | `switch_port_errors` | `window`, `limit` | Ports with errors or drops in the window, by device and port |
 | `wifi_health` | `limit` | Per radio: channel utilization, stations, satisfaction; the Wi-Fi clients with the lowest satisfaction, with signal |
-| `top_clients_traffic` | `limit` | Clients moving the most data now |
+| `top_clients_traffic` | `limit` | Clients moving the most data over 5 minutes, to and from each client (from the byte counters; unpoller's rate gauges read near zero) |
 
 Every LAN template aggregates to named labels, so MAC addresses, BSSIDs and
 serial numbers never come back. **Client names are set by the devices
