@@ -5,8 +5,10 @@
 # other tool servers: non-root, no capabilities, read-only root filesystem,
 # no hostPath, no host network. Without ptrace rights it can read only what
 # any user may (/proc/<pid>/stat and /cgroup), never command lines,
-# environments, open files or another process's filesystem. Its only API
-# access is listing pods, to name each process's pod and hide familiar's.
+# environments, open files or another process's filesystem; and the
+# world-readable sysfs block statistics of RBD volumes. Its only API access
+# is listing pods and PersistentVolumes, to name each process's pod and each
+# volume's claim, and to hide familiar's.
 apiVersion: v1
 kind: ServiceAccount
 metadata: {name: host-read, namespace: familiar-host}
@@ -17,7 +19,7 @@ kind: ClusterRole
 metadata: {name: familiar-host-read}
 rules:
   - apiGroups: [""]
-    resources: [pods]
+    resources: [pods, persistentvolumes] # pods: name each process's pod; PVs: map RBD images to claims
     verbs: [list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

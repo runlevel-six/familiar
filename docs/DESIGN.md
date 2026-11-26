@@ -106,7 +106,7 @@ Assume the agent can become adversarial at any time, through prompt injection, m
 | `metrics-query` | Prometheus read | PromQL results; allowlisted query templates + rate limit | Arbitrary PromQL at first |
 | `cert-probe` | None (network only) | Served cert subject/issuer/notAfter per ingress host vs. cert-manager's view | — |
 | `ceph-health` | None (reads Ceph exporter metrics via Prometheus) | Health status, OSD fullness, PG states | Ceph admin keyring / Rook toolbox |
-| `host-read` | List pods; host PID namespace as non-root, no capabilities (2026-11-26) | The node's processes: CPU, memory, state, blocked-on-I/O, grouped by pod or systemd unit; familiar's own pods hidden | Command lines, environments, open files, per-process I/O, root, hostPath |
+| `host-read` | List pods and PersistentVolumes; host PID namespace as non-root, no capabilities (2026-11-26) | The node's processes: CPU, memory, state, blocked-on-I/O, grouped by pod or systemd unit; disk I/O per Ceph volume by claim and pod; familiar's own pods and volumes hidden | Command lines, environments, open files, per-process I/O, root, hostPath |
 
 **Tool server status (2026-11-22):** the four read-only tool servers (`cluster-read`, `metrics-query`, `ceph-health`, `cert-probe`) are implemented in `tools/` as MCP servers speaking both the current spec (2026-07-28, stateless, per-request `_meta`) and the older `initialize` handshake, so either Hermes era works. Tested with unit tests, live read-only runs against the cluster, and an MCP-over-HTTP run. Phase 1 manifests for them and for model-gate are drafted in `deploy/familiar/` (server-side dry-run validated, restricted-PSS compliant, not applied). `log-summary` isn't built (Tier B).
 

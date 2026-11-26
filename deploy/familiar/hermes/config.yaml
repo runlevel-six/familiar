@@ -112,6 +112,6 @@ mcp_servers:
   host-read:
     url: http://host-read.familiar-host.svc.cluster.local:8080/mcp
     tools:
-      include: [top_processes]
+      include: [top_processes, volume_io]
     sampling: {enabled: false}
     elicitation: {enabled: false}

@@ -31,14 +31,27 @@ type podIndex struct {
 
 	mu      sync.Mutex
 	byUID   map[string]podRef
+	byClaim map[podRef][]string // namespace/claim -> names of pods mounting it
 	fetched time.Time
 }
 
 func (x *podIndex) lookup(ctx context.Context) (map[string]podRef, error) {
+	byUID, _, err := x.load(ctx)
+	return byUID, err
+}
+
+// claims maps each PersistentVolumeClaim (as namespace/name) to the pods
+// that mount it.
+func (x *podIndex) claims(ctx context.Context) (map[podRef][]string, error) {
+	_, byClaim, err := x.load(ctx)
+	return byClaim, err
+}
+
+func (x *podIndex) load(ctx context.Context) (map[string]podRef, map[podRef][]string, error) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	if x.byUID != nil && x.now().Sub(x.fetched) < x.ttl {
-		return x.byUID, nil
+		return x.byUID, x.byClaim, nil
 	}
 	var list struct {
 		Items []struct {
@@ -48,12 +61,20 @@ func (x *podIndex) lookup(ctx context.Context) (map[string]podRef, error) {
 				UID         string            `json:"uid"`
 				Annotations map[string]string `json:"annotations"`
 			} `json:"metadata"`
+			Spec struct {
+				Volumes []struct {
+					PVC *struct {
+						ClaimName string `json:"claimName"`
+					} `json:"persistentVolumeClaim"`
+				} `json:"volumes"`
+			} `json:"spec"`
 		} `json:"items"`
 	}
 	if err := x.g.Get(ctx, "/api/v1/pods?limit=1000", &list); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	m := make(map[string]podRef, len(list.Items))
+	c := map[podRef][]string{}
 	for _, it := range list.Items {
 		ref := podRef{it.Metadata.Namespace, it.Metadata.Name}
 		m[it.Metadata.UID] = ref
@@ -62,9 +83,15 @@ func (x *podIndex) lookup(ctx context.Context) (map[string]podRef, error) {
 				m[h] = ref
 			}
 		}
+		for _, v := range it.Spec.Volumes {
+			if v.PVC != nil {
+				claim := podRef{it.Metadata.Namespace, v.PVC.ClaimName}
+				c[claim] = append(c[claim], it.Metadata.Name)
+			}
+		}
 	}
-	x.byUID, x.fetched = m, x.now()
-	return m, nil
+	x.byUID, x.byClaim, x.fetched = m, c, x.now()
+	return m, c, nil
 }
 
 // classify names a process's group and says whether it must be hidden. With

@@ -11,7 +11,7 @@ Go standard library only.
 | `metrics-query` | None | Prometheus, through fixed query templates |
 | `ceph-health` | None (no Ceph keyring) | Ceph metrics already in Prometheus |
 | `cert-probe` | None | TLS connections to the ingress controller, for a fixed list of hosts |
-| `host-read` | A ClusterRole with list on pods only; the host's PID namespace, as a non-root user with no capabilities | `/proc` on the node |
+| `host-read` | A ClusterRole with list on pods and PersistentVolumes only; the host's PID namespace, as a non-root user with no capabilities | `/proc` and sysfs on the node |
 
 ## Tools
 
@@ -139,7 +139,7 @@ names, IPs or ports.
 |---|---|
 | `ceph_status` | Overall health, active health checks, monitor quorum, OSD up/in counts, placement group states, capacity |
 | `ceph_osds` | Per OSD: up/in, fullness, size, apply and commit latency, and the host disk it sits on (`device`, as `disk_io` names it; from Ceph's `ceph_disk_occupation_human`) |
-| `ceph_pools` | Per pool: used fraction, stored bytes, space available |
+| `ceph_pools` | Per pool: used fraction, stored bytes, space available, and client reads and writes over 5 minutes (ops/s, MB/s; which volume does them: `host-read` `volume_io`) |
 
 ### cert-probe
 
@@ -156,6 +156,14 @@ can't be pointed anywhere else.
 | Tool | Parameters | Returns |
 |---|---|---|
 | `top_processes` | `sort` (`cpu`, `memory`, `blocked`; default `cpu`), `by` (`process` or `group`; default `process`), `limit` (1–40, default 15) | The node's processes over five samples about two seconds apart: CPU cores, resident memory, state, how many samples found it blocked in uninterruptible I/O wait (state D), threads, and its group (`pod <namespace>/<name>`, `systemd <unit>`, `user session`, `kernel`, `other`). `by: group` sums per group. `blocked` lists only processes blocked at least once |
+
+| `volume_io` | `sort` (`writes`, `reads`, `busy`; default `writes`), `limit` (1–40, default 15) | Each mapped Ceph RBD volume over about two seconds, by claim (`namespace/name`) with the pods that mount it: writes and reads per second, MB/s each way, average write wait, busy fraction |
+
+`volume_io` reads `/sys/bus/rbd/devices/<id>/{pool,name}` and
+`/sys/block/rbd<id>/stat`, which any user may, and maps each image to its
+claim through the PersistentVolume's CSI attributes (`pool`, `imageName`).
+Volumes of `familiar-*` claims are hidden, and so is any image it can't map;
+if listing PersistentVolumes fails, every volume is hidden.
 
 It runs in the host's PID namespace, in its own `familiar-host` namespace
 (the only familiar namespace whose Pod Security level allows that), as a

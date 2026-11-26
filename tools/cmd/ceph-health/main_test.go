@@ -52,10 +52,11 @@ func TestPoolsJoinNames(t *testing.T) {
 	f := fake{
 		`ceph_pool_metadata`:     {s(1, "pool_id", "1", "name", "ceph-blockpool")},
 		`ceph_pool_percent_used`: {s(0.02, "pool_id", "1")},
+		`rate(ceph_pool_wr[5m])`: {s(40, "pool_id", "1")},
 	}
 	out, _ := (&handlers{q: f, now: time.Now}).pools(context.Background(), json.RawMessage(`{}`))
 	p := out.(map[string]any)["pools"].([]map[string]any)[0]
-	if p["name"] != "ceph-blockpool" || p["percent_used"] != 0.02 {
+	if p["name"] != "ceph-blockpool" || p["percent_used"] != 0.02 || p["write_ops_per_s"] != 40.0 {
 		t.Fatalf("pool: %v", p)
 	}
 }

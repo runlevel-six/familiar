@@ -149,6 +149,9 @@ func (h *handlers) pools(ctx context.Context, args json.RawMessage) (any, error)
 	rows := map[string]map[string]any{}
 	for key, q := range map[string]string{
 		"percent_used": `ceph_pool_percent_used`, "stored_bytes": `ceph_pool_stored`, "max_avail_bytes": `ceph_pool_max_avail`,
+		// Client I/O over 5 minutes, from Ceph's own per-pool counters.
+		"write_ops_per_s": `rate(ceph_pool_wr[5m])`, "write_mb_per_s": `rate(ceph_pool_wr_bytes[5m]) / 1e6`,
+		"read_ops_per_s": `rate(ceph_pool_rd[5m])`, "read_mb_per_s": `rate(ceph_pool_rd_bytes[5m]) / 1e6`,
 	} {
 		s, err := h.q.Query(ctx, q)
 		if err != nil {
@@ -178,7 +181,7 @@ func (h *handlers) tools() []mcp.Tool {
 		{Name: "ceph_osds", Title: "Ceph OSDs", InputSchema: empty, Handler: h.osds,
 			Description: "Per-OSD up/in state, fullness, size, apply/commit latency, and the host disk it sits on (device, e.g. sdc: the name metrics-query disk_io uses)."},
 		{Name: "ceph_pools", Title: "Ceph pools", InputSchema: empty, Handler: h.pools,
-			Description: "Per-pool used fraction, stored bytes and space still available."},
+			Description: "Per pool: used fraction, stored bytes, space still available, and client reads and writes over the last 5 minutes (ops/s and MB/s). For which volume or pod does the I/O, see host-read volume_io."},
 	}
 }
 

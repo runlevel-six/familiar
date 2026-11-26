@@ -36,12 +36,19 @@ func must(t *testing.T, err error) {
 
 type fakeKube struct{ err error }
 
-func (f fakeKube) Get(_ context.Context, _ string, out any) error {
+func (f fakeKube) Get(_ context.Context, path string, out any) error {
 	if f.err != nil {
 		return f.err
 	}
+	if strings.HasPrefix(path, "/api/v1/persistentvolumes") {
+		return json.Unmarshal([]byte(`{"items":[
+			{"spec":{"csi":{"volumeAttributes":{"pool":"blockpool","imageName":"csi-vol-shop"}},"claimRef":{"namespace":"shop","name":"data-web-1"}}},
+			{"spec":{"csi":{"volumeAttributes":{"pool":"blockpool","imageName":"csi-vol-hermes"}},"claimRef":{"namespace":"familiar-agents","name":"hermes-data"}}},
+			{"spec":{"hostPath":{"path":"/srv"},"claimRef":{"namespace":"monitoring","name":"prom"}}}
+		]}`), out)
+	}
 	return json.Unmarshal([]byte(`{"items":[
-		{"metadata":{"name":"web-1","namespace":"shop","uid":"aaaa-bbbb"}},
+		{"metadata":{"name":"web-1","namespace":"shop","uid":"aaaa-bbbb"},"spec":{"volumes":[{"persistentVolumeClaim":{"claimName":"data-web-1"}},{"emptyDir":{}}]}},
 		{"metadata":{"name":"hermes-1","namespace":"familiar-agents","uid":"cccc-dddd"}},
 		{"metadata":{"name":"kube-apiserver-n1","namespace":"kube-system","uid":"mirror-uid","annotations":{"kubernetes.io/config.mirror":"0728fa4f"}}}
 	]}`), out)
