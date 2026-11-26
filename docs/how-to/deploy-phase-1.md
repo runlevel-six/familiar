@@ -129,6 +129,22 @@ Don't trust an apply; check each boundary.
   node ("requested read-only file system"). Scale memory-auditor to 0 until the
   PVC shows the new capacity, then back to 1.
 
+## Updating the tool servers
+
+Hermes reads each tool server's tool list once, when it starts, and refreshes
+it only on a `tools/list_changed` notification, which the stateless tool
+servers never send. After a new tool server image (new templates or tools),
+restart Hermes or the agent keeps the old list:
+
+```sh
+kubectl -n familiar-agents rollout restart deploy/hermes
+```
+
+Changing `config.yaml` or `SOUL.md` restarts it anyway (the ConfigMap name
+changes). A long-running conversation also carries the agent's earlier
+conclusions about what it can see; start a new session (`/reset` in Matrix)
+when its abilities change.
+
 ## Afterwards
 
 Phase 1 runs for at least two weeks before anything widens: review memory
