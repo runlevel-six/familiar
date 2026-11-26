@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: Apache-2.0
+# host-read (design §4.1): the node's own processes, outside Kubernetes too.
+# It shares the host's PID namespace, so it lives in familiar-host, the only
+# familiar namespace that allows that. The pod is otherwise as tight as the
+# other tool servers: non-root, no capabilities, read-only root filesystem,
+# no hostPath, no host network. Without ptrace rights it can read only what
+# any user may (/proc/<pid>/stat and /cgroup), never command lines,
+# environments, open files or another process's filesystem. Its only API
+# access is listing pods, to name each process's pod and hide familiar's.
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: host-read, namespace: familiar-host}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: familiar-host-read}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: familiar-host-read}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: familiar-host-read}
+subjects: [{kind: ServiceAccount, name: host-read, namespace: familiar-host}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: host-read
+  namespace: familiar-host
+  labels: &labels {app.kubernetes.io/name: host-read, app.kubernetes.io/part-of: familiar, familiar/kind: tool-server}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: host-read}}
+  template:
+    metadata: {labels: *labels}
+    spec:
+      serviceAccountName: host-read
+      automountServiceAccountToken: true # needs its own token to list pods
+      hostPID: true
+      priorityClassName: familiar-low
+      enableServiceLinks: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: host-read
+          image: ghcr.io/runlevel-six/familiar-tools@sha256:e9bada8a67e8fcd1870b3ae0597e53d53af90aaef8808f9dd7e198013f8bb007 # 0.6.0-d9cf1d9
+          command: ["/host-read"]
+          ports: [{name: mcp, containerPort: 8080}]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 96Mi}}
+          readinessProbe: {httpGet: {path: /healthz, port: mcp}, periodSeconds: 15}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: host-read, namespace: familiar-host}
+spec:
+  selector: {app.kubernetes.io/name: host-read}
+  ports: [{name: mcp, port: 8080, targetPort: mcp}]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: host-read-egress, namespace: familiar-host}
+spec:
+  endpointSelector: {matchLabels: {app.kubernetes.io/name: host-read}}
+  egress:
+    - toEntities: [kube-apiserver]
+      toPorts: [{ports: [{port: "6443", protocol: TCP}]}]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: host-read-ingress, namespace: familiar-host}
+spec:
+  endpointSelector: {matchLabels: {app.kubernetes.io/name: host-read}}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: familiar-agents
+            familiar/role: watch-officer
+      toPorts: [{ports: [{port: "8080", protocol: TCP}]}]

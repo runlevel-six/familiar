@@ -27,3 +27,11 @@ spec:
   endpointSelector: {}
   ingress: [{}]
   egress: [{}]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: default-deny, namespace: familiar-host}
+spec:
+  endpointSelector: {}
+  ingress: [{}]
+  egress: [{}]

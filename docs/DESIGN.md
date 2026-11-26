@@ -106,6 +106,7 @@ Assume the agent can become adversarial at any time, through prompt injection, m
 | `metrics-query` | Prometheus read | PromQL results; allowlisted query templates + rate limit | Arbitrary PromQL at first |
 | `cert-probe` | None (network only) | Served cert subject/issuer/notAfter per ingress host vs. cert-manager's view | — |
 | `ceph-health` | None (reads Ceph exporter metrics via Prometheus) | Health status, OSD fullness, PG states | Ceph admin keyring / Rook toolbox |
+| `host-read` | List pods; host PID namespace as non-root, no capabilities (2026-11-26) | The node's processes: CPU, memory, state, blocked-on-I/O, grouped by pod or systemd unit; familiar's own pods hidden | Command lines, environments, open files, per-process I/O, root, hostPath |
 
 **Tool server status (2026-11-22):** the four read-only tool servers (`cluster-read`, `metrics-query`, `ceph-health`, `cert-probe`) are implemented in `tools/` as MCP servers speaking both the current spec (2026-07-28, stateless, per-request `_meta`) and the older `initialize` handshake, so either Hermes era works. Tested with unit tests, live read-only runs against the cluster, and an MCP-over-HTTP run. Phase 1 manifests for them and for model-gate are drafted in `deploy/familiar/` (server-side dry-run validated, restricted-PSS compliant, not applied). `log-summary` isn't built (Tier B).
 
@@ -118,6 +119,7 @@ Assume the agent can become adversarial at any time, through prompt injection, m
 - `familiar-system`: model-gate. (memory-auditor moved to `familiar-agents`, see §4.1.) Agent has no network or API access here except model-gate's port.
 - `familiar-agents`: Hermes instances. No ServiceAccount tokens mounted.
 - `familiar-tools`: tool servers.
+- `familiar-host`: `host-read` only, because it needs the host's PID namespace (Pod Security `privileged`, warn `restricted`; the pod itself is non-root with no capabilities). Added 2026-11-26.
 - **No familiar component can modify** `familiar-*` namespaces, RBAC objects, CiliumNetworkPolicies, RuntimeClasses, Authelia config, Rook/Ceph CRDs, backup config, storage and resources (§5.6), or the `monitoring` namespace and its rules (A4). The backup storage is also unreachable from familiar pods (no hostPath mounts; CNP-denied), because it contains every Secret. All guardrail config lives in a GitOps repo that only I can merge.
 
 ### 4.3 Network policy (Cilium)

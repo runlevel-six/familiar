@@ -1,6 +1,6 @@
 # Tool servers reference
 
-Four read-only MCP servers, one image (`ghcr.io/runlevel-six/familiar-tools`), one
+Five read-only MCP servers, one image (`ghcr.io/runlevel-six/familiar-tools`), one
 binary each. They hold the credentials, enforce the policy, log every call and
 return redacted summaries; the agent holds nothing. Source: [`tools/`](../../tools).
 Go standard library only.
@@ -11,6 +11,7 @@ Go standard library only.
 | `metrics-query` | None | Prometheus, through fixed query templates |
 | `ceph-health` | None (no Ceph keyring) | Ceph metrics already in Prometheus |
 | `cert-probe` | None | TLS connections to the ingress controller, for a fixed list of hosts |
+| `host-read` | A ClusterRole with list on pods only; the host's PID namespace, as a non-root user with no capabilities | `/proc` on the node |
 
 ## Tools
 
@@ -150,6 +151,27 @@ names, IPs or ports.
 Hosts come only from the `HOSTS` setting, never from the caller, so the probe
 can't be pointed anywhere else.
 
+### host-read
+
+| Tool | Parameters | Returns |
+|---|---|---|
+| `top_processes` | `sort` (`cpu`, `memory`, `blocked`; default `cpu`), `by` (`process` or `group`; default `process`), `limit` (1–40, default 15) | The node's processes over five samples about two seconds apart: CPU cores, resident memory, state, how many samples found it blocked in uninterruptible I/O wait (state D), threads, and its group (`pod <namespace>/<name>`, `systemd <unit>`, `user session`, `kernel`, `other`). `by: group` sums per group. `blocked` lists only processes blocked at least once |
+
+It runs in the host's PID namespace, in its own `familiar-host` namespace
+(the only familiar namespace whose Pod Security level allows that), as a
+non-root user with no capabilities, a read-only root filesystem, no hostPath
+and no host network. Without ptrace rights the kernel lets it read only
+`/proc/<pid>/stat` and `/cgroup`, which any user may: never command lines,
+environments, open files, per-process I/O or another process's filesystem.
+
+Processes are matched to pods by the pod UID in their cgroup path (static
+pods by their config hash). Processes in `familiar-*` pods are dropped,
+including the agent's own Kata VM. A process in a pod the index doesn't know
+(created in the last minute) is dropped too, and if listing pods fails,
+every pod process is dropped and the result says so: a process that might be
+familiar's is never shown. Process names are chosen by the processes, so
+they're cleaned like LAN client names (15 characters at most).
+
 ## Environment variables
 
 | Variable | Server | Default | |
@@ -159,7 +181,8 @@ can't be pointed anywhere else.
 | `BACKUP_METRIC` | metrics-query | `backup_last_success_timestamp_seconds` | The gauge your backup jobs write (a Unix timestamp per backup kind). Must be a bare metric name |
 | `TARGET` | cert-probe | `traefik.traefik.svc:443` | Where to connect; each host is sent as the TLS server name |
 | `HOSTS` | cert-probe | | Comma-separated hosts to probe |
-| `KUBE_DEV_PROXY_URL` | cluster-read | | Local testing only: use a `kubectl proxy` instead of the pod's ServiceAccount |
+| `PROC_ROOT` | host-read | `/proc` | Where procfs is mounted (tests) |
+| `KUBE_DEV_PROXY_URL` | cluster-read, host-read | | Local testing only: use a `kubectl proxy` instead of the pod's ServiceAccount |
 
 ## Guardrails in every server
 

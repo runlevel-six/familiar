@@ -109,3 +109,9 @@ mcp_servers:
       include: [probe_all_certificates, probe_certificate]
     sampling: {enabled: false}
     elicitation: {enabled: false}
+  host-read:
+    url: http://host-read.familiar-host.svc.cluster.local:8080/mcp
+    tools:
+      include: [top_processes]
+    sampling: {enabled: false}
+    elicitation: {enabled: false}

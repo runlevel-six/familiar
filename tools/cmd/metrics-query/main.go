@@ -15,7 +15,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/runlevel-six/familiar/tools/internal/mcp"
 	"github.com/runlevel-six/familiar/tools/internal/prom"
@@ -426,27 +425,9 @@ var templates = map[string]tmpl{
 // maxUntrustedLen caps an untrusted label value (a client's own name).
 const maxUntrustedLen = 40
 
-// sanitizeLabel keeps letters, digits, spaces and a little punctuation, at
-// most maxUntrustedLen of them; anything else becomes "_". Names set by
-// devices on the LAN reach the agent this way, so they're short, plain text
-// with no markup, links, control or invisible characters.
-func sanitizeLabel(v string) string {
-	var b strings.Builder
-	n := 0
-	for _, r := range v {
-		if n == maxUntrustedLen {
-			b.WriteString("…")
-			break
-		}
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune(" .-_'’()#&+", r) {
-			b.WriteRune(r)
-		} else {
-			b.WriteRune('_')
-		}
-		n++
-	}
-	return b.String()
-}
+// sanitizeLabel cleans a label value a device on the LAN chose (see
+// redact.PlainLabel), so the agent gets short, plain text.
+func sanitizeLabel(v string) string { return redact.PlainLabel(v, maxUntrustedLen) }
 
 // hideFamiliar drops results that belong to familiar's own namespaces or
 // alerts. The queries already exclude them; this catches a template that

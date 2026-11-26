@@ -10,4 +10,5 @@ resources:
   - 02-default-deny.yaml
   - 10-model-gate.yaml
   - 20-tool-servers.yaml
+  - 21-host-read.yaml
   - hermes

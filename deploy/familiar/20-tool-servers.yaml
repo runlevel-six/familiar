@@ -285,6 +285,7 @@ spec:
               - matchName: metrics-query.familiar-tools.svc.cluster.local
               - matchName: ceph-health.familiar-tools.svc.cluster.local
               - matchName: cert-probe.familiar-tools.svc.cluster.local
+              - matchName: host-read.familiar-host.svc.cluster.local
               - matchName: ess-synapse.matrix.svc.cluster.local
     - toEndpoints:
         - matchLabels:
@@ -295,6 +296,11 @@ spec:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: familiar-tools
             familiar/kind: tool-server
+      toPorts: [{ports: [{port: "8080", protocol: TCP}]}]
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: familiar-host
+            app.kubernetes.io/name: host-read
       toPorts: [{ports: [{port: "8080", protocol: TCP}]}]
     # Matrix (D19, D21): the ESS HAProxy pods behind the ess-synapse Service,
     # client API port only. Never the Traefik hostname.
