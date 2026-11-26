@@ -52,7 +52,8 @@ apiVersion: v1
 kind: ResourceQuota
 metadata: {name: quota, namespace: familiar-host}
 spec:
-  hard: {requests.cpu: 50m, requests.memory: 64Mi, limits.memory: 128Mi, pods: "2", persistentvolumeclaims: "0"}
+  # Room for two pods: a rolling update runs the new one beside the old.
+  hard: {requests.cpu: 50m, requests.memory: 96Mi, limits.memory: 256Mi, pods: "2", persistentvolumeclaims: "0"}
 ---
 apiVersion: v1
 kind: LimitRange
