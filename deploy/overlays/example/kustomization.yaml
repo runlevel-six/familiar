@@ -28,7 +28,8 @@ patches:
                 env:
                   - {name: MATRIX_USER_ID, value: "@gideon:example.org"}
                   - {name: MATRIX_ALLOWED_USERS, value: "@owner:example.org"}
-  # The gauge your host backup jobs write (metrics-query's backup_age_hours).
+  # The gauge your host backup jobs write (metrics-query's backup_age_hours), and
+  # your UniFi firewall zones' names by ID (inbound_firewall_rules; omit without unpoller).
   - target: {kind: Deployment, name: metrics-query, namespace: familiar-tools}
     patch: |
       apiVersion: apps/v1
@@ -41,3 +42,4 @@ patches:
               - name: metrics-query
                 env:
                   - {name: BACKUP_METRIC, value: "site_backup_last_success_timestamp_seconds"}
+                  - {name: UNIFI_FIREWALL_ZONES, value: "00000000-0000-4000-8000-000000000001=External,00000000-0000-4000-8000-000000000002=VPN,00000000-0000-4000-8000-000000000003=Internal"}

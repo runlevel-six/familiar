@@ -44,6 +44,9 @@ type tmpl struct {
 	// Untrusted lists result labels whose values come from devices or
 	// people on the LAN (client names), cleaned by sanitizeLabel.
 	Untrusted []string
+	// Zones lists result labels holding UniFi firewall zone IDs, replaced
+	// by their configured names (zoneName).
+	Zones []string
 }
 
 var (
@@ -172,6 +175,57 @@ func setBackupMetric(name string) error {
 	backupMetric = name
 	return nil
 }
+
+// UniFi firewall zones appear in unpoller's labels only as IDs; their names
+// (External, Internal, Gateway, VPN, DMZ, Hotspot or custom ones) are site
+// configuration, set by UNIFI_FIREWALL_ZONES as "id=Name,id=Name". The IDs
+// are written into PromQL, so both halves are validated strictly.
+var (
+	firewallZones = map[string]string{}
+	reZoneID      = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	reZoneName    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _-]{0,31}$`)
+)
+
+func setFirewallZones(spec string) error {
+	zones := map[string]string{}
+	for pair := range strings.SplitSeq(spec, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		id, name, ok := strings.Cut(pair, "=")
+		id, name = strings.ToLower(strings.TrimSpace(id)), strings.TrimSpace(name)
+		if !ok || !reZoneID.MatchString(id) || !reZoneName.MatchString(name) {
+			return fmt.Errorf("UNIFI_FIREWALL_ZONES entry %q is not id=Name", pair)
+		}
+		zones[id] = name
+	}
+	firewallZones = zones
+	return nil
+}
+
+// zoneIDs returns the configured IDs of the zones with these names (any
+// case), sorted.
+func zoneIDs(names ...string) []string {
+	var ids []string
+	for id, n := range firewallZones {
+		if slices.ContainsFunc(names, func(want string) bool { return strings.EqualFold(want, n) }) {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func zoneName(id string) string {
+	if n, ok := firewallZones[id]; ok {
+		return n
+	}
+	return "unnamed zone " + id
+}
+
+// fwRuleLabels identify one UniFi firewall rule.
+const fwRuleLabels = "rule_name, action, protocol, ip_version, source_zone, dest_zone"
 
 var templates = map[string]tmpl{
 	"node_cpu_cores_used": {Description: "CPU cores in use on the node (all non-idle modes).", Rangeable: true,
@@ -429,6 +483,33 @@ var templates = map[string]tmpl{
 			return `label_replace(` + to + ` / 1e6 and on (` + by + `) ` + top + `, "check", "to_client_mb_per_s", "", "")` +
 				` or label_replace(` + from + ` / 1e6 and on (` + by + `) ` + top + `, "check", "from_client_mb_per_s", "", "")`
 		}},
+	// Exposure: what the internet (and VPN clients) can reach, as the UniFi
+	// gateway is configured now. Forward targets are IPs, which redaction
+	// hides, so they're joined to the cluster object they land on.
+	"port_forwards": {Description: "UniFi port forwards from the internet, as configured now: forward name, WAN port (dst_port), protocol (proto), forwarded port (fwd_port), and where it lands: target=service with the LoadBalancer Service's namespace and name (lb_service), target=node with the node's name (host network: every port on the node that matches), or target=outside_cluster (another LAN device). Value 1 = enabled, 0 = disabled. A forward's source restriction, if any, isn't exported: its 'Allow Port Forward' rule is in inbound_firewall_rules. To see what a forward to Traefik exposes, follow with cluster-read ingresses.",
+		Build: func(params) string {
+			fw := `label_replace(max by (name, proto, dst_port, fwd_port, fwd_ip) (unpoller_port_forward_enabled), "ip", "$1", "fwd_ip", "(.*)")`
+			// "service" is stripped from every result (it names the scrape
+			// target), so the Service's name travels as lb_service.
+			svc := `label_replace(max by (ip, namespace, service) (kube_service_status_load_balancer_ingress), "lb_service", "$1", "service", "(.*)")`
+			node := `label_replace(max by (internal_ip, node) (kube_node_info), "ip", "$1", "internal_ip", "(.*)")`
+			by := "name, proto, dst_port, fwd_port"
+			return strings.Join([]string{
+				`label_replace(max by (` + by + `, namespace, lb_service) (` + fw + ` * on (ip) group_left (namespace, lb_service) ` + svc + `), "target", "service", "", "")`,
+				`label_replace(max by (` + by + `, node) (` + fw + ` * on (ip) group_left (node) ` + node + `), "target", "node", "", "")`,
+				`label_replace(max by (` + by + `) (` + fw + ` unless on (ip) (` + svc + ` or ` + node + `)), "target", "outside_cluster", "", "")`,
+			}, " or ")
+		}},
+	"inbound_firewall_rules": {Description: "UniFi firewall rules for traffic from the internet (source_zone External) and from VPN clients (source_zone VPN), enabled rules only: rule name, action (ALLOW/BLOCK), protocol, IP version and destination zone. The value is the rule's order: within one source and destination zone pair, the lowest matching rule wins. 'Allow Port Forward <name>' rules belong to port_forwards. Addresses in rule names are redacted. Zone names come from site configuration; a zone without one shows as 'unnamed zone <id>', and if no External or VPN zone is named, rules from every zone are returned.",
+		Zones: []string{"source_zone", "dest_zone"},
+		Build: func(params) string {
+			sel := ""
+			if ids := zoneIDs("External", "VPN"); len(ids) > 0 {
+				sel = `source_zone=~"` + strings.Join(ids, "|") + `"`
+			}
+			return `max by (` + fwRuleLabels + `) (unpoller_firewall_rule_index{` + sel + `})` +
+				` and on (` + fwRuleLabels + `) (max by (` + fwRuleLabels + `) (unpoller_firewall_rule_enabled{` + sel + `}) == 1)`
+		}},
 	// Per-volume history: node-exporter's rbdN counters joined to claims by
 	// host-read's familiar_rbd_volume_info (which omits familiar's volumes).
 	"volume_io_over_window": {Description: "Per PVC (Ceph RBD volume, by claim_namespace/claim) over the window: writes and reads per second, MB written per second, average write wait or latency (ms) and busy fraction; the busiest writers first. For the last few seconds with pod names, use host-read volume_io.",
@@ -576,6 +657,11 @@ func (h *handlers) query(ctx context.Context, args json.RawMessage) (any, error)
 				samples[i].Labels[l] = sanitizeLabel(v)
 			}
 		}
+		for _, l := range t.Zones {
+			if v, ok := samples[i].Labels[l]; ok {
+				samples[i].Labels[l] = zoneName(v)
+			}
+		}
 	}
 	if samples == nil {
 		samples = []prom.Sample{} // "results": [], never null: scripts iterate it
@@ -626,6 +712,10 @@ func contains(l []string, s string) bool {
 func main() {
 	log := mcp.NewLogger()
 	if err := setBackupMetric(mcp.Env("BACKUP_METRIC", backupMetric)); err != nil {
+		log.Error("fatal", "err", err.Error())
+		os.Exit(1)
+	}
+	if err := setFirewallZones(mcp.Env("UNIFI_FIREWALL_ZONES", "")); err != nil {
 		log.Error("fatal", "err", err.Error())
 		os.Exit(1)
 	}

@@ -28,7 +28,7 @@ error, and their objects are filtered out of every list before any tool sees the
 | `recent_events` | `namespace`, `warnings_only` (default true), `since_minutes` (1–1440, default 60), `limit` (1–200, default 50) | Events, newest first, messages redacted |
 | `storage_status` | `namespace` | PVCs (phase, capacity, class), PersistentVolumes that aren't Bound, StorageClasses |
 | `certificates` | `namespace` | cert-manager Certificates: DNS names, Ready, expiry, renewal time |
-| `ingresses` | `namespace` | Hosts, class, TLS hosts, backend services |
+| `ingresses` | `namespace` | Hosts, class, TLS hosts, backend services; `auth` (`forward_auth`, `basic`, `none`, or `unknown` when only Traefik middlewares are named), `source_allowlist`, and the Traefik `middlewares` and `entrypoints` named |
 
 `namespace` is optional everywhere except `describe_workload`; leaving it out means
 all (visible) namespaces.
@@ -120,6 +120,8 @@ hold the credentials.
 | `switch_port_errors` | `window`, `limit` | Ports with errors or drops in the window, by device and port |
 | `wifi_health` | `limit` | Per radio: channel utilization, stations, satisfaction; the Wi-Fi clients with the lowest satisfaction, with signal |
 | `top_clients_traffic` | `limit` | Clients moving the most data over 5 minutes, to and from each client (from the byte counters; unpoller's rate gauges read near zero) |
+| `port_forwards` | | The gateway's port forwards: name, WAN port, protocol, forwarded port, enabled, and where each lands: a LoadBalancer Service (`namespace`, `lb_service`), a node (host network), or outside the cluster |
+| `inbound_firewall_rules` | | Enabled firewall rules from the External and VPN zones: name, action, protocol, IP version, destination zone; the value is the rule's order within its zone pair (see `UNIFI_FIREWALL_ZONES`) |
 
 Every LAN template aggregates to named labels, so MAC addresses, BSSIDs and
 serial numbers never come back. **Client names are set by the devices
@@ -129,6 +131,17 @@ themselves**, so anyone on the LAN controls them: in `wifi_health` and
 markup, control or invisible character survives; plain words still can,
 which is why the agent treats tool output as data. Templates with such labels
 have no history, because `metric_history` doesn't clean labels.
+
+`port_forwards` and `inbound_firewall_rules` are the exposure templates: what
+the internet and VPN clients can reach, as the gateway is configured now. A
+forward's target is an address, which redaction would hide, so the query joins
+it to the LoadBalancer Service (kube-state-metrics'
+`kube_service_status_load_balancer_ingress`) or node (`kube_node_info`) that
+holds it. Addresses in rule names are redacted. unpoller doesn't export a
+forward's source restriction. For a forward to the ingress controller,
+cluster-read's `ingresses` gives each route's `auth` and `source_allowlist`;
+since a client can send any host name to the controller, DNS doesn't limit
+what the forward exposes.
 
 The network templates read Hubble's flow metrics, which need Hubble metrics
 enabled with namespace context (`labelsContext=source_namespace,destination_namespace`
@@ -195,6 +208,7 @@ they're cleaned like LAN client names (15 characters at most).
 |---|---|---|---|
 | `LISTEN` | all | `:8080` | MCP listen address |
 | `PROMETHEUS_URL` | metrics-query, ceph-health | `http://kps-prometheus.monitoring.svc:9090` | Prometheus base URL |
+| `UNIFI_FIREWALL_ZONES` | metrics-query | | UniFi firewall zone names, as `id=Name,id=Name` (unpoller labels zones by ID only). `inbound_firewall_rules` selects the zones named `External` and `VPN`; any zone without a name shows as `unnamed zone <id>`. IDs must be UUIDs and names plain words |
 | `BACKUP_METRIC` | metrics-query | `backup_last_success_timestamp_seconds` | The gauge your backup jobs write (a Unix timestamp per backup kind). Must be a bare metric name |
 | `TARGET` | cert-probe | `traefik.traefik.svc:443` | Where to connect; each host is sent as the TLS server name |
 | `HOSTS` | cert-probe | | Comma-separated hosts to probe |

@@ -34,6 +34,7 @@ The base holds placeholders for these; set them in your overlay
 | The one user it answers | `hermes` Deployment, `MATRIX_ALLOWED_USERS` | `@owner:example.org` |
 | Its home room, for scheduled output | `hermes` Deployment, `MATRIX_HOME_ROOM` | commented out |
 | The backup gauge | `metrics-query` Deployment, `BACKUP_METRIC` | the code's default |
+| UniFi firewall zone names | `metrics-query` Deployment, `UNIFI_FIREWALL_ZONES` | made-up IDs for External, VPN and Internal |
 
 Secrets are created by hand, never kept in the repository: `model-gate-keys` in
 `familiar-system` (one file per role) and `hermes-matrix` in `familiar-agents`

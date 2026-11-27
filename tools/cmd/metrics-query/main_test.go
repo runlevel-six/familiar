@@ -285,3 +285,93 @@ func TestUntrustedLabelsCleaned(t *testing.T) {
 		}
 	}
 }
+
+const (
+	zoneExternal = "aaaaaaaa-0000-4000-8000-000000000001"
+	zoneVPN      = "bbbbbbbb-0000-4000-8000-000000000002"
+	zoneInternal = "cccccccc-0000-4000-8000-000000000003"
+)
+
+type zoneProm struct{ fakeProm }
+
+func (z *zoneProm) Query(_ context.Context, q string) ([]prom.Sample, error) {
+	z.queries = append(z.queries, q)
+	return []prom.Sample{{Labels: map[string]string{"rule_name": "Allow Port Forward Web", "source_zone": zoneExternal, "dest_zone": "ffffffff-0000-4000-8000-00000000000f"}, Value: 30000}}, nil
+}
+
+func TestFirewallZones(t *testing.T) {
+	defer func(old map[string]string) { firewallZones = old }(firewallZones)
+
+	// Unconfigured: every enabled rule, IDs shown as unnamed zones.
+	if err := setFirewallZones(""); err != nil {
+		t.Fatal(err)
+	}
+	if q := templates["inbound_firewall_rules"].Build(params{}); strings.Contains(q, "source_zone=~") {
+		t.Errorf("unconfigured query filters zones: %s", q)
+	}
+
+	if err := setFirewallZones(" " + zoneExternal + "=External, " + strings.ToUpper(zoneVPN) + "=vpn ," + zoneInternal + "=Internal,"); err != nil {
+		t.Fatal(err)
+	}
+	q := templates["inbound_firewall_rules"].Build(params{})
+	if want := `source_zone=~"` + zoneExternal + "|" + zoneVPN + `"`; !strings.Contains(q, want) {
+		t.Errorf("query %s lacks %s", q, want)
+	}
+	h := &handlers{q: &zoneProm{}, now: time.Now}
+	out, err := h.query(context.Background(), json.RawMessage(`{"template":"inbound_firewall_rules"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := out.(map[string]any)["results"].([]prom.Sample)[0].Labels
+	if l["source_zone"] != "External" || l["dest_zone"] != "unnamed zone ffffffff-0000-4000-8000-00000000000f" {
+		t.Errorf("zones not named: %v", l)
+	}
+
+	// The IDs go into PromQL: nothing but a UUID and a plain name is accepted.
+	for _, bad := range []string{
+		"External",
+		zoneExternal + "=",
+		zoneExternal + `"} or up{a="=External`,
+		`.*=External`,
+		zoneExternal + "=Ext\"ernal",
+		zoneExternal + "=" + strings.Repeat("x", 33),
+	} {
+		if setFirewallZones(bad) == nil {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+	// history doesn't name zones, so no template with zone labels may have it
+	for name, tm := range templates {
+		if len(tm.Zones) > 0 && tm.Rangeable {
+			t.Errorf("%s has zone labels and history", name)
+		}
+	}
+}
+
+type forwardProm struct{ fakeProm }
+
+func (f *forwardProm) Query(_ context.Context, q string) ([]prom.Sample, error) {
+	f.queries = append(f.queries, q)
+	return []prom.Sample{{Labels: map[string]string{"name": "Web", "dst_port": "443", "namespace": "traefik", "lb_service": "traefik", "target": "service"}, Value: 1}}, nil
+}
+
+// The forward's target is an IP, which redaction hides; the template must
+// name the Service instead, under a label the handler doesn't strip.
+func TestPortForwardsNameTheirTarget(t *testing.T) {
+	f := &forwardProm{}
+	h := &handlers{q: f, now: time.Now}
+	out, err := h.query(context.Background(), json.RawMessage(`{"template":"port_forwards"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := out.(map[string]any)["results"].([]prom.Sample)[0].Labels
+	if l["lb_service"] != "traefik" || l["target"] != "service" {
+		t.Errorf("target lost: %v", l)
+	}
+	q := f.queries[0]
+	for _, want := range []string{`group_left (namespace, lb_service)`, `group_left (node)`, `unless on (ip)`} {
+		if !strings.Contains(q, want) {
+			t.Errorf("query lacks %q", want)
+		}
+	}
+}

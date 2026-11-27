@@ -70,7 +70,10 @@ func fixture() *fakeAPI {
 		"/api/v1/persistentvolumeclaims":         `{"items":[{"metadata":{"name":"data","namespace":"shop"},"spec":{"storageClassName":"ceph-block","volumeName":"pv-1"},"status":{"phase":"Bound","capacity":{"storage":"5Gi"}}}]}`,
 		"/api/v1/persistentvolumes":              `{"items":[{"metadata":{"name":"pv-1"},"status":{"phase":"Bound"}},{"metadata":{"name":"pv-old"},"spec":{"persistentVolumeReclaimPolicy":"Retain","claimRef":{"namespace":"gone","name":"x"}},"status":{"phase":"Released"}}]}`,
 		"/apis/storage.k8s.io/v1/storageclasses": `{"items":[{"metadata":{"name":"ceph-block"},"provisioner":"rook-ceph.rbd.csi.ceph.com"}]}`,
-		"/apis/networking.k8s.io/v1/ingresses":   `{"items":[{"metadata":{"name":"web","namespace":"shop","annotations":{"secret":"x"}},"spec":{"ingressClassName":"nginx","tls":[{"hosts":["*.example.com"]}],"rules":[{"host":"shop.example.com","http":{"paths":[{"path":"/","backend":{"service":{"name":"web","port":{"number":80}}}}]}}]}}]}`,
+		"/apis/networking.k8s.io/v1/ingresses": `{"items":[{"metadata":{"name":"web","namespace":"shop","annotations":{"secret":"x"}},"spec":{"ingressClassName":"nginx","tls":[{"hosts":["*.example.com"]}],"rules":[{"host":"shop.example.com","http":{"paths":[{"path":"/","backend":{"service":{"name":"web","port":{"number":80}}}}]}}]}},
+			{"metadata":{"name":"admin","namespace":"shop","annotations":{"nginx.ingress.kubernetes.io/auth-url":"http://auth.internal.example/verify?token=abc123","nginx.ingress.kubernetes.io/auth-response-headers":"Remote-User"}},"spec":{"rules":[{"host":"admin.example.com"}]}},
+			{"metadata":{"name":"api","namespace":"shop","annotations":{"traefik.ingress.kubernetes.io/router.middlewares":"shop-sso@kubernetescrd, shop-ratelimit@kubernetescrd","traefik.ingress.kubernetes.io/router.entrypoints":"websecure"}},"spec":{"rules":[{"host":"api.example.com"}]}},
+			{"metadata":{"name":"lan","namespace":"shop","annotations":{"nginx.ingress.kubernetes.io/whitelist-source-range":"10.0.0.0/8"}},"spec":{"rules":[{"host":"lan.example.com"}]}}]}`,
 	}}
 }
 
@@ -203,5 +206,41 @@ func TestStorageCertsIngresses(t *testing.T) {
 	b, _ := json.Marshal(out)
 	if ing["backends"].([]any)[0] != "shop.example.com/ -> web:80" || strings.Contains(string(b), `"secret"`) {
 		t.Fatalf("ingresses: %s", b)
+	}
+}
+
+// The ingresses tool says how each route is guarded from a fixed set of
+// annotations, and returns no annotation value other than middleware and
+// entrypoint names.
+func TestIngressAccess(t *testing.T) {
+	out, _ := runTool(t, fixture(), "ingresses", `{}`)
+	got := map[string]map[string]any{}
+	for _, i := range out["ingresses"].([]any) {
+		m := i.(map[string]any)
+		got[m["name"].(string)] = m
+	}
+	want := map[string]struct {
+		auth      string
+		allowlist bool
+		mw, ep    string
+	}{
+		"web":   {"none", false, "[]", "[]"},
+		"admin": {"forward_auth", false, "[]", "[]"},
+		"api":   {"unknown", false, `["shop-sso@kubernetescrd","shop-ratelimit@kubernetescrd"]`, `["websecure"]`},
+		"lan":   {"none", true, "[]", "[]"},
+	}
+	for name, w := range want {
+		g := got[name]
+		mw, _ := json.Marshal(g["middlewares"])
+		ep, _ := json.Marshal(g["entrypoints"])
+		if g["auth"] != w.auth || g["source_allowlist"] != w.allowlist || string(mw) != w.mw || string(ep) != w.ep {
+			t.Errorf("%s: auth=%v allowlist=%v middlewares=%s entrypoints=%s", name, g["auth"], g["source_allowlist"], mw, ep)
+		}
+	}
+	b, _ := json.Marshal(out)
+	for _, leak := range []string{"auth.internal", "abc123", "Remote-User", "10.0.0.0", `"secret"`} {
+		if strings.Contains(string(b), leak) {
+			t.Errorf("annotation value %q returned: %s", leak, b)
+		}
 	}
 }

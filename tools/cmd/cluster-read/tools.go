@@ -41,7 +41,9 @@ func checkNamespace(ns string, optional bool) error {
 
 // Minimal Kubernetes object shapes. Only fields that are safe to return are
 // decoded at all: env, args, volumes, annotations and ConfigMap/Secret data
-// never enter this process's memory as structured data.
+// never enter this process's memory as structured data. The one exception is
+// a fixed set of Ingress annotation keys (ingressAccess) that say whether a
+// route requires login or limits sources.
 type meta struct {
 	Name              string            `json:"name"`
 	Namespace         string            `json:"namespace"`
@@ -335,7 +337,7 @@ func (h *handlers) tools() []mcp.Tool {
 		},
 		{
 			Name: "ingresses", Title: "Ingresses",
-			Description: "Ingress hosts, class, TLS hosts and backend services.",
+			Description: "Ingress hosts, class, TLS hosts and backend services, and how each route is guarded as annotated: auth (forward_auth: an external login check such as Authelia; basic; none; or unknown when only Traefik middlewares are named), source_allowlist (true when the Ingress limits client addresses), and the Traefik middlewares and entrypoints it names. A host anyone can send to the ingress controller is reachable whatever DNS says, so for internet exposure pair this with metrics-query port_forwards. Whether the controller enforces each annotation isn't checked.",
 			InputSchema: mcp.Object(map[string]any{"namespace": nsProp}),
 			Handler:     h.ingresses,
 		},
@@ -746,8 +748,11 @@ func (h *handlers) ingresses(ctx context.Context, args json.RawMessage) (any, er
 		path = "/apis/networking.k8s.io/v1/namespaces/" + in.Namespace + "/ingresses"
 	}
 	var l list[struct {
-		Metadata meta `json:"metadata"`
-		Spec     struct {
+		Metadata struct {
+			meta
+			Annotations ingressAccess `json:"annotations"`
+		} `json:"metadata"`
+		Spec struct {
 			IngressClassName string `json:"ingressClassName"`
 			TLS              []struct {
 				Hosts []string `json:"hosts"`
@@ -790,8 +795,48 @@ func (h *handlers) ingresses(ctx context.Context, args json.RawMessage) (any, er
 		for _, t := range i.Spec.TLS {
 			tlsHosts = append(tlsHosts, t.Hosts...)
 		}
+		a := i.Metadata.Annotations
 		out = append(out, map[string]any{"namespace": i.Metadata.Namespace, "name": i.Metadata.Name, "class": i.Spec.IngressClassName,
-			"hosts": hosts, "tls_hosts": tlsHosts, "backends": backends})
+			"hosts": hosts, "tls_hosts": tlsHosts, "backends": backends,
+			"auth": a.auth(), "source_allowlist": a.NginxAllowlist != "" || a.NginxWhitelist != "",
+			"middlewares": splitList(a.TraefikMiddlewares), "entrypoints": splitList(a.TraefikEntrypoints)})
 	}
 	return map[string]any{"ingresses": out}, nil
+}
+
+// ingressAccess holds the only annotations cluster-read decodes: those that
+// say whether a route requires login or limits sources, for the ingress-nginx
+// annotations (which Traefik's ingress-nginx provider reads) and Traefik's
+// own. Values other than the middleware and entrypoint names never leave
+// this process; auth and source_allowlist are derived from them.
+type ingressAccess struct {
+	NginxAuthURL       string `json:"nginx.ingress.kubernetes.io/auth-url"`
+	NginxAuthType      string `json:"nginx.ingress.kubernetes.io/auth-type"`
+	NginxAllowlist     string `json:"nginx.ingress.kubernetes.io/allowlist-source-range"`
+	NginxWhitelist     string `json:"nginx.ingress.kubernetes.io/whitelist-source-range"`
+	TraefikMiddlewares string `json:"traefik.ingress.kubernetes.io/router.middlewares"`
+	TraefikEntrypoints string `json:"traefik.ingress.kubernetes.io/router.entrypoints"`
+}
+
+func (a ingressAccess) auth() string {
+	switch {
+	case a.NginxAuthURL != "":
+		return "forward_auth"
+	case strings.EqualFold(strings.TrimSpace(a.NginxAuthType), "basic"):
+		return "basic"
+	case a.TraefikMiddlewares != "":
+		return "unknown" // a middleware may require login; its name doesn't say
+	}
+	return "none"
+}
+
+// splitList splits a comma-separated annotation value; empty gives [].
+func splitList(v string) []string {
+	out := []string{}
+	for p := range strings.SplitSeq(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
