@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Read-only MCP tool servers (DRAFT, not applied). Design §4.1; code in tools/.
-# One image holds all four binaries, pinned by digest (T8; pushed 2026-11-22). Each server
+# One image holds all the tool binaries, pinned by digest (T8; pushed 2026-11-22). Each server
 # listens on :8080 (/mcp and /healthz) and writes one audit line per call.
 #
 # Only Hermes pods (familiar-agents, role watch-officer) may reach them, and
@@ -79,6 +79,67 @@ kind: CiliumNetworkPolicy
 metadata: {name: cluster-read-egress, namespace: familiar-tools}
 spec:
   endpointSelector: {matchLabels: {app.kubernetes.io/name: cluster-read}}
+  egress:
+    - toEntities: [kube-apiserver]
+      toPorts: [{ports: [{port: "6443", protocol: TCP}]}]
+
+# ---------- vuln-read: the Trivy Operator's VulnerabilityReports only (D27) ----------
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: vuln-read, namespace: familiar-tools}
+automountServiceAccountToken: false
+---
+# get/list on one resource: the reports the Trivy Operator writes. Nothing
+# else in the cluster, and no write verb. familiar-* namespaces are hidden by
+# the tool server (cmd/vuln-read), as in cluster-read.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: familiar-vuln-read}
+rules:
+  - apiGroups: [aquasecurity.github.io]
+    resources: [vulnerabilityreports]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: familiar-vuln-read}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: familiar-vuln-read}
+subjects: [{kind: ServiceAccount, name: vuln-read, namespace: familiar-tools}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vuln-read
+  namespace: familiar-tools
+  labels: &vrlabels {app.kubernetes.io/name: vuln-read, app.kubernetes.io/part-of: familiar, familiar/kind: tool-server}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: vuln-read}}
+  template:
+    metadata: {labels: *vrlabels}
+    spec:
+      serviceAccountName: vuln-read
+      automountServiceAccountToken: true # needs its own token for the API
+      priorityClassName: familiar-low
+      enableServiceLinks: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: vuln-read
+          image: ghcr.io/runlevel-six/familiar-tools@sha256:de9757c6604a98890119897de4160eb7c7fca12e868ccba95cc4c136355295ca # 0.10.0-638e2ac
+          command: ["/vuln-read"]
+          ports: [{name: mcp, containerPort: 8080}]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          # Reports are read five at a time (each up to ~1 MB) and kept
+          # compacted for ten minutes.
+          resources: {requests: {cpu: 10m, memory: 48Mi}, limits: {memory: 192Mi}}
+          readinessProbe: {httpGet: {path: /healthz, port: mcp}, periodSeconds: 15}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: vuln-read-egress, namespace: familiar-tools}
+spec:
+  endpointSelector: {matchLabels: {app.kubernetes.io/name: vuln-read}}
   egress:
     - toEntities: [kube-apiserver]
       toPorts: [{ports: [{port: "6443", protocol: TCP}]}]
@@ -238,6 +299,11 @@ spec: {selector: {app.kubernetes.io/name: cluster-read}, ports: [{name: mcp, por
 ---
 apiVersion: v1
 kind: Service
+metadata: {name: vuln-read, namespace: familiar-tools}
+spec: {selector: {app.kubernetes.io/name: vuln-read}, ports: [{name: mcp, port: 8080, targetPort: mcp}]}
+---
+apiVersion: v1
+kind: Service
 metadata: {name: metrics-query, namespace: familiar-tools}
 spec: {selector: {app.kubernetes.io/name: metrics-query}, ports: [{name: mcp, port: 8080, targetPort: mcp}]}
 ---
@@ -285,6 +351,7 @@ spec:
               - matchName: metrics-query.familiar-tools.svc.cluster.local
               - matchName: ceph-health.familiar-tools.svc.cluster.local
               - matchName: cert-probe.familiar-tools.svc.cluster.local
+              - matchName: vuln-read.familiar-tools.svc.cluster.local
               - matchName: host-read.familiar-host.svc.cluster.local
               - matchName: ess-synapse.matrix.svc.cluster.local
     - toEndpoints:

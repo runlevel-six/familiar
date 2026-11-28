@@ -20,7 +20,7 @@ apiVersion: v1
 kind: ResourceQuota
 metadata: {name: quota, namespace: familiar-tools}
 spec:
-  hard: {requests.cpu: 400m, requests.memory: 512Mi, limits.memory: 1Gi, pods: "8", persistentvolumeclaims: "0"}
+  hard: {requests.cpu: 400m, requests.memory: 512Mi, limits.memory: 1536Mi, pods: "10", persistentvolumeclaims: "0"}
 ---
 apiVersion: v1
 kind: ResourceQuota

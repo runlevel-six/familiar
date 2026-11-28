@@ -8,13 +8,14 @@ allowed is in [Manifests and policies](../reference/manifests.md#what-each-polic
 
 In short:
 
-- **Hermes** reaches model-gate's role port, the four tool servers and the
-  Matrix homeserver, and can resolve only those six names.
+- **Hermes** reaches model-gate's role port, the six tool servers and the
+  Matrix homeserver, and can resolve only those eight names.
 - **model-gate** is the only thing that reaches the internet, and only
   `api.anthropic.com` on port 443.
-- **cluster-read** reaches the Kubernetes API; **metrics-query** and
-  **ceph-health** reach Prometheus; **cert-probe** reaches the ingress
-  controller.
+- **cluster-read** and **vuln-read** reach the Kubernetes API;
+  **metrics-query** and **ceph-health** reach Prometheus; **cert-probe**
+  reaches the ingress controller; **host-read** reads the node's `/proc` and
+  reaches the Kubernetes API for pod names.
 - **memory-auditor** has no egress at all.
 - **Nothing** in familiar reaches Alertmanager, whose unauthenticated API can
   create silences.

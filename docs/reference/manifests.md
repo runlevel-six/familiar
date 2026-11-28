@@ -13,7 +13,7 @@ under the restricted Pod Security Standard.
 | `01-priority-and-quotas.yaml` | The `familiar-low` PriorityClass (-100, never preempts); a ResourceQuota and LimitRange per namespace |
 | `02-default-deny.yaml` | Default-deny ingress and egress in each namespace |
 | `10-model-gate.yaml` | model-gate: Deployment, config (ConfigMap), state PVC, Service, network policies, ServiceMonitor and alert rules |
-| `20-tool-servers.yaml` | The four tool servers, cluster-read's ClusterRole, their network policies, and the watch officer's egress policy |
+| `20-tool-servers.yaml` | The five tool servers in `familiar-tools`, the ClusterRoles of cluster-read and vuln-read, their network policies, and the watch officer's egress policy |
 | `hermes/kustomization.yaml` | Hermes and memory-auditor; ConfigMaps generated from `config.yaml`, `SOUL.md`, `scripts/` and `memory-auditor.py`, so a change rolls the pods |
 | `hermes/deployment.yaml` | Hermes: ServiceAccount (no token mounted), data PVC, Deployment |
 | `hermes/memory-auditor.yaml` | memory-auditor: its PVC, Deployment, Service, network policy, ServiceMonitor and alert rules |
@@ -56,8 +56,8 @@ Everything not listed is denied.
 | From | To | Port |
 |---|---|---|
 | watch officer | model-gate | 8081 |
-| watch officer | the four tool servers | 8080 |
-| watch officer | kube-dns, for six names only: model-gate, the four tool servers and `ess-synapse.matrix` | 53 |
+| watch officer | the tool servers (`familiar-tools`, and host-read in `familiar-host`) | 8080 |
+| watch officer | kube-dns, for eight names only: model-gate, the six tool servers and `ess-synapse.matrix` | 53 |
 | watch officer | the Matrix homeserver's HAProxy pods (`matrix` namespace) | 8008 |
 | model-gate | `api.anthropic.com`, by DNS name | 443 |
 | cluster-read | the Kubernetes API | 6443 |

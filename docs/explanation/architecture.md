@@ -41,7 +41,7 @@ untrusted input, a builder) are planned in the [design document](../DESIGN.md).
 |---|---|---|
 | **Hermes** (`familiar-agents`) | Nothing privileged. Its Matrix access token is the only Secret it sees | Runs scheduled health sweeps and answers questions over Matrix. Its persona and rules are in [`SOUL.md`](../../deploy/familiar/hermes/SOUL.md) |
 | **model-gate** (`familiar-system`) | The Anthropic API key for each role | Checks every request (models, tools, betas, size), injects the key, meters cost in USD, enforces hourly and daily budgets, writes an audit line per request. See the [reference](../reference/model-gate.md) |
-| **Tool servers** (`familiar-tools`) | Their own narrow credentials (a read-only ClusterRole for cluster-read; none for the others) | Answer fixed questions over MCP and return redacted summaries, never raw data. See the [reference](../reference/tool-servers.md) |
+| **Tool servers** (`familiar-tools`, and `familiar-host` for host-read) | Their own narrow credentials (read-only ClusterRoles for cluster-read, host-read and vuln-read; none for the others) | Answer fixed questions over MCP and return redacted summaries, never raw data. See the [reference](../reference/tool-servers.md) |
 | **memory-auditor** (`familiar-agents`) | Read-only access to Hermes' volume; its own git repo | Records every change to Hermes' memory, scheduled jobs and config, and alerts on them. See [Review and restore GIDEON's memory](../how-to/review-and-restore-memory.md) |
 | **Prometheus and Alertmanager** | | The primary way problems are found. The agent adds triage; it never replaces alerting |
 
@@ -67,7 +67,7 @@ Every boundary that matters is outside the agent's process and outside its
 control:
 
 - **Network:** default-deny Cilium policies in all three namespaces. Hermes
-  can reach model-gate, the four tool servers and the Matrix homeserver, and
+  can reach model-gate, the six tool servers and the Matrix homeserver, and
   resolve only those names. Only model-gate reaches the internet, and only
   `api.anthropic.com`. See [Network isolation](network-isolation.md).
 - **Credentials:** the agent pod mounts no ServiceAccount token. Keys live in

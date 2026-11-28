@@ -29,6 +29,12 @@ mcp_servers:
       include: [probe_all_certificates, probe_certificate]
     sampling: {enabled: false}
     elicitation: {enabled: false}
+  vuln-read:
+    url: http://vuln-read.familiar-tools.svc.cluster.local:8080/mcp
+    tools:
+      include: [vulnerability_summary, list_vulnerabilities, find_vulnerability]
+    sampling: {enabled: false}
+    elicitation: {enabled: false}
 # Verify these key names against the Hermes version you deploy: the docs
 # researched in A1 named `sampling`/`elicitation` per server, but the exact
 # shape wasn't confirmed against a running Hermes.

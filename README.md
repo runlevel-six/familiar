@@ -27,7 +27,7 @@ to follow.
 
 **Phase 1, the read-only watch officer, has been running since 2026-11-23.**
 GIDEON runs in a Kata VM, talks to its owner over Matrix, and sweeps the cluster
-every four hours; model-gate, the four tool servers and memory-auditor are
+every four hours; model-gate, the tool servers and memory-auditor are
 deployed with every guardrail verified from inside the agent's VM. It now runs for
 at least two weeks against the Phase 1 exit criteria before anything widens. Later
 phases, in order of risk, are in the [design document](docs/DESIGN.md):
@@ -43,9 +43,11 @@ Images are published to `ghcr.io/runlevel-six/model-gate` and
   allowlists, hourly and daily budgets in USD, and an audit line per request. It
   refuses Anthropic's server-side tools, which would let the agent reach the
   internet through the model API.
-- **Four read-only tool servers** over MCP: cluster state, fixed Prometheus
-  queries, Ceph health and ingress certificates. Each holds its own narrow
-  credential, logs every call and redacts what it returns.
+- **Six read-only tool servers** over MCP: cluster state, fixed Prometheus
+  queries (including the LAN and what it exposes), Ceph health, ingress
+  certificates, the node's processes and volumes, and known vulnerabilities in
+  the running images. Each holds its own narrow credential, logs every call and
+  redacts what it returns.
 - **memory-auditor**, which commits every change to the agent's memory, scheduled
   jobs and files to a repository the agent can't reach, and alerts on them.
 - **Network isolation** with Cilium: default deny everywhere; the agent reaches

@@ -1,6 +1,6 @@
 # Tool servers reference
 
-Five read-only MCP servers, one image (`ghcr.io/runlevel-six/familiar-tools`), one
+Six read-only MCP servers, one image (`ghcr.io/runlevel-six/familiar-tools`), one
 binary each. They hold the credentials, enforce the policy, log every call and
 return redacted summaries; the agent holds nothing. Source: [`tools/`](../../tools).
 Go standard library only.
@@ -12,6 +12,7 @@ Go standard library only.
 | `ceph-health` | None (no Ceph keyring) | Ceph metrics already in Prometheus |
 | `cert-probe` | None | TLS connections to the ingress controller, for a fixed list of hosts |
 | `host-read` | A ClusterRole with list on pods and PersistentVolumes only; the host's PID namespace, as a non-root user with no capabilities | `/proc` and sysfs on the node |
+| `vuln-read` | A ClusterRole with get/list on the Trivy Operator's `vulnerabilityreports` only | The scanner's reports (D27) |
 
 ## Tools
 
@@ -202,6 +203,40 @@ every pod process is dropped and the result says so: a process that might be
 familiar's is never shown. Process names are chosen by the processes, so
 they're cleaned like LAN client names (15 characters at most).
 
+### vuln-read
+
+Known vulnerabilities in the running images, from the Trivy Operator's
+`VulnerabilityReport`s (it rescans daily and on every rollout). familiar's own
+namespaces are hidden, as in cluster-read.
+
+| Tool | Parameters | Returns |
+|---|---|---|
+| `vulnerability_summary` | `namespace`, `limit` (1–100, default 30) | Per scanned container (namespace, workload, container, image, OS, scan time): CRITICAL, HIGH and MEDIUM counts, how many CRITICAL and HIGH have a fixed version, and how many of those are unrated by the distribution; worst first |
+| `list_vulnerabilities` | `namespace` (required), `workload` (`deployment/web` or `web`), `min_severity` (`critical`, `high`, `medium`; default `high`), `fixable_only`, `limit` (1–200, default 40) | Findings: ID, effective and vendor severity, CVSS score, package, installed version, fixed version (empty when no fix is released), publication date; worst first |
+| `find_vulnerability` | `id` (CVE, GHSA and similar IDs) | Every scanned container with that vulnerability, with package and versions |
+
+**Effective severity.** The scanner records the distribution's rating; a
+finding the distribution hasn't rated is `UNKNOWN`, and these are common and
+can be serious (an unrated CVSS 8.1 remote code execution in apt was in the
+first scan). For those the tools use the CVSS v3 band (9+ critical, 7+ high,
+4+ medium) as `severity` and keep the rating as `vendor_severity`. The
+scanner itself records MEDIUM and above plus unrated findings; LOW is never
+recorded.
+
+**Structured fields only.** Advisory titles, descriptions and links are
+never decoded: they are free text written by third parties, untrusted input
+reserved for the Phase 3 reader. Everything returned comes from images whose
+authors control it, so each field is held to a narrow pattern: IDs must look
+like an ID (`INVALID-ID` otherwise), and packages, versions and image names
+keep only letters, digits and `._+/@:~-` (versions also `, `), with anything
+else replaced by `_`; no sentence survives. A package listed twice for one
+vulnerability counts once.
+
+Reports are read five per API request and kept, compacted, for ten minutes.
+Every result says what the scan covers, and that a finding means a vulnerable
+package is present, not reachable: exposure comes from metrics-query
+`port_forwards` and cluster-read `ingresses`.
+
 ## Environment variables
 
 | Variable | Server | Default | |
@@ -214,7 +249,7 @@ they're cleaned like LAN client names (15 characters at most).
 | `HOSTS` | cert-probe | | Comma-separated hosts to probe |
 | `PROC_ROOT` | host-read | `/proc` | Where procfs is mounted (tests) |
 | `METRICS_LISTEN` | host-read | `:9100` | Where Prometheus scrapes the RBD-to-claim mapping |
-| `KUBE_DEV_PROXY_URL` | cluster-read, host-read | | Local testing only: use a `kubectl proxy` instead of the pod's ServiceAccount |
+| `KUBE_DEV_PROXY_URL` | cluster-read, host-read, vuln-read | | Local testing only: use a `kubectl proxy` instead of the pod's ServiceAccount |
 
 ## Guardrails in every server
 
@@ -227,8 +262,8 @@ they're cleaned like LAN client names (15 characters at most).
 - **Audit:** one JSON log line per call, rejected and unknown ones included:
   tool, redacted arguments, client, remote address, protocol version, outcome,
   result size, duration.
-- **Rate limits** per minute: cluster-read 60, metrics-query and ceph-health 30,
-  cert-probe 20.
+- **Rate limits** per minute: cluster-read 60, metrics-query, ceph-health and
+  vuln-read 30, cert-probe and host-read 20.
 - **Strict arguments:** unknown fields are errors; namespaces and names are
   checked against Kubernetes naming rules before any API call. Problems come back
   as `isError` results the model can correct; internal errors don't leak detail.

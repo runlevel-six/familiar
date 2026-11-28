@@ -31,7 +31,7 @@ PROM_URL=http://kubeproxy:8001/api/v1/namespaces/monitoring/services/kps-prometh
 TRAEFIK=${TRAEFIK:?set TRAEFIK to the ingress controller address, host:port}
 CERT_HOSTS=${CERT_HOSTS:?set CERT_HOSTS to the comma-separated hosts cert-probe checks}
 
-containers=(hermes memory-auditor cluster-read metrics-query ceph-health cert-probe model-gate kubeproxy)
+containers=(hermes memory-auditor cluster-read metrics-query ceph-health cert-probe vuln-read model-gate kubeproxy)
 
 up() {
   [[ -r $key_file ]] || { echo "missing API key file: $key_file" >&2; exit 1; }
@@ -67,6 +67,7 @@ up() {
   tool metrics-query -e PROMETHEUS_URL=$PROM_URL
   tool ceph-health -e PROMETHEUS_URL=$PROM_URL
   tool cert-probe -e TARGET=$TRAEFIK -e HOSTS="$CERT_HOSTS"
+  tool vuln-read -e KUBE_DEV_PROXY_URL=http://kubeproxy:8001
 
   # Matrix (round 2): only when the local Synapse and the bot token exist.
   local matrix_env=()
@@ -103,7 +104,7 @@ up() {
     -v "$hdir/config.yaml:/baseline/config.yaml:ro" -v "$hdir/memory-auditor.py:/app/memory-auditor.py:ro" \
     -e INTERVAL=${AUDIT_INTERVAL:-60} -e HOME=/tmp --cap-drop ALL --security-opt no-new-privileges \
     --entrypoint /opt/hermes/.venv/bin/python3 "$HERMES_IMAGE" /app/memory-auditor.py >/dev/null
-  podman ps --filter name='^(hermes|memory-auditor|cluster-read|metrics-query|ceph-health|cert-probe|model-gate|kubeproxy)$' --format '{{.Names}}\t{{.Status}}'
+  podman ps --filter name='^(hermes|memory-auditor|cluster-read|metrics-query|ceph-health|cert-probe|vuln-read|model-gate|kubeproxy)$' --format '{{.Names}}\t{{.Status}}'
 }
 
 down() { podman rm -f "${containers[@]}" >/dev/null 2>&1 || true; }

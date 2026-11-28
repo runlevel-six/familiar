@@ -1,9 +1,10 @@
 # familiar tool servers
 
-Four read-only MCP servers for the watch officer: `cluster-read`,
-`metrics-query`, `ceph-health` and `cert-probe`. They hold the credentials,
-enforce the policy, log every call and return redacted summaries; the agent holds
-nothing. Go standard library only; one image with four binaries.
+Six read-only MCP servers for the watch officer: `cluster-read`,
+`metrics-query`, `ceph-health`, `cert-probe`, `host-read` and `vuln-read`. They
+hold the credentials, enforce the policy, log every call and return redacted
+summaries; the agent holds nothing. Go standard library only; one image with six
+binaries.
 
 - [Reference](../docs/reference/tool-servers.md): every tool and parameter, the
   query templates, environment variables, guardrails and protocol.
