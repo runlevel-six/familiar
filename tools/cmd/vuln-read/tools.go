@@ -31,7 +31,9 @@ const scope = "From the Trivy Operator's scans of running images (rescanned dail
 	"Only MEDIUM and above, plus findings the distribution hasn't rated, are recorded; LOW is not. " +
 	"severity is the scanner's rating, or for unrated findings the CVSS band (vendor_severity UNKNOWN). " +
 	"Findings say a vulnerable package is present, not that it is reachable: combine with exposure " +
-	"(metrics-query port_forwards, cluster-read ingresses) before calling one urgent."
+	"(metrics-query port_forwards, cluster-read ingresses) before calling one urgent. " +
+	"A running container with no report (containers_not_scanned) has unknown vulnerabilities: not scanned yet, " +
+	"or its report was too large to store. Never describe one as clean."
 
 func (h *handlers) tools() []mcp.Tool {
 	nsProp := mcp.Str("Namespace (familiar-* namespaces are not visible)")
@@ -39,7 +41,7 @@ func (h *handlers) tools() []mcp.Tool {
 	return []mcp.Tool{
 		{
 			Name: "vulnerability_summary", Title: "Vulnerability summary",
-			Description: "Per scanned container (namespace, workload, container, image): counts of CRITICAL, HIGH and MEDIUM findings, how many CRITICAL and HIGH have a fixed version available, how many of those are unrated by the distribution and ranked by CVSS instead, and when it was scanned. Worst first. Start here. " + scope,
+			Description: "Per scanned container (namespace, workload, container, image): counts of CRITICAL, HIGH and MEDIUM findings, how many CRITICAL and HIGH have a fixed version available, how many of those are unrated by the distribution and ranked by CVSS instead, and when it was scanned. Worst first. Also every running container that has no report (containers_not_scanned). Start here. " + scope,
 			InputSchema: mcp.Object(map[string]any{
 				"namespace": nsProp,
 				"limit":     mcp.Int("Maximum containers (default 30)", 1, 100),
@@ -48,7 +50,7 @@ func (h *handlers) tools() []mcp.Tool {
 		},
 		{
 			Name: "list_vulnerabilities", Title: "List vulnerabilities",
-			Description: "The findings for one namespace, or one workload in it: vulnerability ID, effective and vendor severity, CVSS score, package, installed version, fixed version (empty: no fix released) and publication date; worst first. " + scope,
+			Description: "The findings for one namespace, or one workload in it: vulnerability ID, effective and vendor severity, CVSS score, package, installed version, fixed version (empty: no fix released) and publication date; worst first. Also the running containers in that scope with no report (containers_not_scanned). " + scope,
 			InputSchema: mcp.Object(map[string]any{
 				"namespace":    nsProp,
 				"workload":     mcp.Str("Workload, as vulnerability_summary names it (deployment/web) or just its name (web); omit for the whole namespace"),
@@ -129,9 +131,15 @@ func (h *handlers) summary(ctx context.Context, args json.RawMessage) (any, erro
 	if in.Limit <= 0 || in.Limit > 100 {
 		in.Limit = 30
 	}
-	ts, at, err := h.ix.get(ctx)
+	ts, run, at, err := h.ix.getAll(ctx)
 	if err != nil {
 		return nil, err
+	}
+	missing := []running{}
+	for _, r := range notScanned(latest(ts), run) {
+		if in.Namespace == "" || r.Namespace == in.Namespace {
+			missing = append(missing, r)
+		}
 	}
 	rows := []summaryRow{}
 	clean := 0
@@ -183,7 +191,7 @@ func (h *handlers) summary(ctx context.Context, args json.RawMessage) (any, erro
 	}
 	return map[string]any{
 		"index_built": at.UTC().Format(time.RFC3339), "containers_scanned": total, "containers_without_findings": clean,
-		"containers": rows, "truncated": total > len(rows), "scope": scope,
+		"containers": rows, "truncated": total > len(rows), "containers_not_scanned": missing, "scope": scope,
 	}, nil
 }
 
@@ -251,7 +259,7 @@ func (h *handlers) list(ctx context.Context, args json.RawMessage) (any, error) 
 	if in.Limit <= 0 || in.Limit > 200 {
 		in.Limit = 40
 	}
-	ts, at, err := h.ix.get(ctx)
+	ts, run, at, err := h.ix.getAll(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -270,6 +278,11 @@ func (h *handlers) list(ctx context.Context, args json.RawMessage) (any, error) 
 		}
 	}
 	if matched == 0 {
+		for _, r := range notScanned(latest(ts), run) {
+			if r.Namespace == in.Namespace && matchesWorkload(target{Workload: r.Workload}, in.Workload) {
+				return nil, mcp.Errorf("%s/%s is running but has no vulnerability report (not scanned yet, or its report was too large to store): its vulnerabilities are unknown, not absent", r.Namespace, r.Workload)
+			}
+		}
 		return nil, mcp.Errorf("no scanned workload matches namespace %q workload %q (not scanned yet, not running, or misnamed; vulnerability_summary lists what was scanned)", in.Namespace, in.Workload)
 	}
 	sortFindings(fs)
@@ -277,7 +290,14 @@ func (h *handlers) list(ctx context.Context, args json.RawMessage) (any, error) 
 	if len(fs) > in.Limit {
 		fs = fs[:in.Limit]
 	}
-	return map[string]any{"index_built": at.UTC().Format(time.RFC3339), "total": total, "findings": fs, "truncated": total > len(fs), "scope": scope}, nil
+	missing := []running{}
+	for _, r := range notScanned(latest(ts), run) {
+		if r.Namespace == in.Namespace && matchesWorkload(target{Workload: r.Workload}, in.Workload) {
+			missing = append(missing, r)
+		}
+	}
+	return map[string]any{"index_built": at.UTC().Format(time.RFC3339), "total": total, "findings": fs, "truncated": total > len(fs),
+		"containers_not_scanned": missing, "scope": scope}, nil
 }
 
 func (h *handlers) find(ctx context.Context, args json.RawMessage) (any, error) {

@@ -44,10 +44,27 @@ const page2 = `{"metadata":{"continue":""},"items":[
   "report":{"artifact":{"repository":"hidden/by-label"},"vulnerabilities":[{"vulnerabilityID":"CVE-2026-8888","severity":"CRITICAL","resource":"x","installedVersion":"1"}]}}
 ]}`
 
+// Running pods: shop's web (scanned via its ReplicaSet), db (scanned) and
+// cams (never scanned); a static pod (owned by its Node, unscanned); a Job's
+// pod (skipped); a stopped pod; and a familiar pod (hidden).
+const podsJSON = `{"metadata":{},"items":[
+ {"metadata":{"name":"web-7d9f8b6c5-abcde","namespace":"shop","ownerReferences":[{"kind":"ReplicaSet","name":"web-7d9f8b6c5"}]},"spec":{"containers":[{"name":"web","image":"shop/web:1.2","env":[{"name":"PASSWORD","value":"hunter2"}]}]},"status":{"phase":"Running"}},
+ {"metadata":{"name":"web-7d9f8b6c5-fghij","namespace":"shop","ownerReferences":[{"kind":"ReplicaSet","name":"web-7d9f8b6c5"}]},"spec":{"containers":[{"name":"web","image":"shop/web:1.2"}]},"status":{"phase":"Running"}},
+ {"metadata":{"name":"db-0","namespace":"shop","ownerReferences":[{"kind":"StatefulSet","name":"db"}]},"spec":{"containers":[{"name":"pg","image":"library/postgres:16"}]},"status":{"phase":"Running"}},
+ {"metadata":{"name":"cams-6f8d9c7b4-xxxxx","namespace":"shop","ownerReferences":[{"kind":"ReplicaSet","name":"cams-6f8d9c7b4"}]},"spec":{"containers":[{"name":"cams","image":"vendor/cams:latest"}]},"status":{"phase":"Running"}},
+ {"metadata":{"name":"etcd-node-0","namespace":"kube-system","ownerReferences":[{"kind":"Node","name":"node-0"}]},"spec":{"containers":[{"name":"etcd","image":"registry.k8s.io/etcd:3.6"}]},"status":{"phase":"Running"}},
+ {"metadata":{"name":"backup-29930000-abcde","namespace":"shop","ownerReferences":[{"kind":"Job","name":"backup-29930000"}]},"spec":{"containers":[{"name":"dump","image":"tools/dump:2"}]},"status":{"phase":"Running"}},
+ {"metadata":{"name":"old-1","namespace":"shop"},"spec":{"containers":[{"name":"old","image":"x/old:1"}]},"status":{"phase":"Succeeded"}},
+ {"metadata":{"name":"hermes-abc","namespace":"familiar-agents","ownerReferences":[{"kind":"ReplicaSet","name":"hermes-f9445dcd5"}]},"spec":{"containers":[{"name":"hermes","image":"secret/agent:1"}]},"status":{"phase":"Running"}}
+]}`
+
 func (f *fakeAPI) Get(_ context.Context, path string, out any) error {
 	f.paths = append(f.paths, path)
 	body := page1
-	if strings.Contains(path, "continue=tok%2F1%2B%3D") {
+	switch {
+	case strings.HasPrefix(path, podsPath):
+		body = podsJSON
+	case strings.Contains(path, "continue=tok%2F1%2B%3D"):
 		body = page2
 	}
 	return json.Unmarshal([]byte(body), out)
@@ -87,8 +104,8 @@ func TestSummary(t *testing.T) {
 	if isErr {
 		t.Fatal(out)
 	}
-	if len(api.paths) != 2 || !strings.HasPrefix(api.paths[0], reportsPath+"?limit=5") {
-		t.Fatalf("pagination: %v", api.paths)
+	if len(api.paths) != 3 || !strings.HasPrefix(api.paths[0], reportsPath+"?limit=5") || !strings.HasPrefix(api.paths[2], podsPath+"?limit=200") {
+		t.Fatalf("requests: %v", api.paths)
 	}
 	rows := out["containers"].([]any)
 	if out["containers_scanned"].(float64) != 3 || out["containers_without_findings"].(float64) != 1 || len(rows) != 3 {
@@ -257,12 +274,47 @@ func TestCache(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(api.paths) != 2 {
+	if len(api.paths) != 3 {
 		t.Fatalf("cache not used: %d requests", len(api.paths))
 	}
 	clock = clock.Add(11 * time.Minute)
 	_, _, _ = ix.get(context.Background())
-	if len(api.paths) != 4 {
+	if len(api.paths) != 6 {
 		t.Fatalf("cache not refreshed after ttl: %d requests", len(api.paths))
+	}
+}
+
+// A running container without a report must show up as not scanned, never
+// disappear: absence of a report is not absence of vulnerabilities.
+func TestNotScanned(t *testing.T) {
+	s := server(&fakeAPI{})
+	out, _ := call(t, s, "vulnerability_summary", `{}`)
+	var got []string
+	for _, r := range out["containers_not_scanned"].([]any) {
+		m := r.(map[string]any)
+		got = append(got, m["namespace"].(string)+"/"+m["workload"].(string)+"/"+m["container"].(string)+" "+m["image"].(string))
+	}
+	want := "kube-system/pod/etcd-node-0/etcd registry.k8s.io/etcd:3.6,shop/deployment/cams/cams vendor/cams:latest"
+	if strings.Join(got, ",") != want {
+		t.Errorf("not scanned:\n got %v\nwant %v", got, want)
+	}
+	b, _ := json.Marshal(out)
+	for _, leak := range []string{"hunter2", "PASSWORD", "hermes", "secret/agent", "x/old"} {
+		if strings.Contains(string(b), leak) {
+			t.Errorf("leaked %q", leak)
+		}
+	}
+	out, _ = call(t, s, "vulnerability_summary", `{"namespace":"kube-system"}`)
+	if n := len(out["containers_not_scanned"].([]any)); n != 1 {
+		t.Errorf("namespace filter: %d not scanned", n)
+	}
+	// A namespace listing names its unscanned containers alongside the findings.
+	out, _ = call(t, s, "list_vulnerabilities", `{"namespace":"shop"}`)
+	if ns := out["containers_not_scanned"].([]any); len(ns) != 1 || ns[0].(map[string]any)["workload"] != "deployment/cams" {
+		t.Errorf("namespace list not_scanned: %v", out["containers_not_scanned"])
+	}
+	out, isErr := call(t, s, "list_vulnerabilities", `{"namespace":"shop","workload":"cams"}`)
+	if !isErr || !strings.Contains(out["error"].(string), "running but has no vulnerability report") {
+		t.Errorf("unscanned workload: %v", out)
 	}
 }

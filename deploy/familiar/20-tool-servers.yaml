@@ -90,15 +90,21 @@ kind: ServiceAccount
 metadata: {name: vuln-read, namespace: familiar-tools}
 automountServiceAccountToken: false
 ---
-# get/list on one resource: the reports the Trivy Operator writes. Nothing
-# else in the cluster, and no write verb. familiar-* namespaces are hidden by
-# the tool server (cmd/vuln-read), as in cluster-read.
+# get/list on the reports the Trivy Operator writes, and on pods, to name the
+# running containers that have no report (not scanned, or the report was too
+# large to store) rather than let them read as clean. Only pod names, owners,
+# container names and images are decoded: nothing cluster-read doesn't already
+# return. No write verb. familiar-* namespaces are hidden by the tool server
+# (cmd/vuln-read), as in cluster-read.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata: {name: familiar-vuln-read}
 rules:
   - apiGroups: [aquasecurity.github.io]
     resources: [vulnerabilityreports]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods]
     verbs: [get, list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

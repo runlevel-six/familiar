@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,7 +25,10 @@ const hiddenNamespacePrefix = "familiar-"
 
 func hiddenNamespace(ns string) bool { return strings.HasPrefix(ns, hiddenNamespacePrefix) }
 
-const reportsPath = "/apis/aquasecurity.github.io/v1alpha1/vulnerabilityreports"
+const (
+	reportsPath = "/apis/aquasecurity.github.io/v1alpha1/vulnerabilityreports"
+	podsPath    = "/api/v1/pods"
+)
 
 // pageSize keeps each API response small: one report can approach 1 MB.
 const pageSize = 5
@@ -90,7 +94,45 @@ type target struct {
 	Vulns     []vuln
 }
 
-// index caches every visible report, compacted, for ttl.
+// running is one container of a running pod, for coverage: a container
+// without a report was not scanned (yet), or its report was too large to
+// store, and must never read as clean.
+type running struct {
+	Namespace string `json:"namespace"`
+	Workload  string `json:"workload"`
+	Container string `json:"container"`
+	Image     string `json:"image"`
+}
+
+// Only what coverage needs is decoded from pods: never env, args, volumes or
+// annotations.
+type podList struct {
+	Metadata struct {
+		Continue string `json:"continue"`
+	} `json:"metadata"`
+	Items []struct {
+		Metadata struct {
+			Name            string `json:"name"`
+			Namespace       string `json:"namespace"`
+			OwnerReferences []struct {
+				Kind string `json:"kind"`
+				Name string `json:"name"`
+			} `json:"ownerReferences"`
+		} `json:"metadata"`
+		Spec struct {
+			Containers []struct {
+				Name  string `json:"name"`
+				Image string `json:"image"`
+			} `json:"containers"`
+		} `json:"spec"`
+		Status struct {
+			Phase string `json:"phase"`
+		} `json:"status"`
+	} `json:"items"`
+}
+
+// index caches every visible report, compacted, and the running containers,
+// for ttl.
 type index struct {
 	g       Getter
 	now     func() time.Time
@@ -98,6 +140,7 @@ type index struct {
 	mu      sync.Mutex
 	at      time.Time
 	targets []target
+	running []running
 }
 
 func newIndex(g Getter, now func() time.Time, ttl time.Duration) *index {
@@ -106,10 +149,16 @@ func newIndex(g Getter, now func() time.Time, ttl time.Duration) *index {
 
 // get returns the cached targets, refreshing them when older than ttl.
 func (ix *index) get(ctx context.Context) ([]target, time.Time, error) {
+	ts, _, at, err := ix.getAll(ctx)
+	return ts, at, err
+}
+
+// getAll returns the cached targets and running containers.
+func (ix *index) getAll(ctx context.Context) ([]target, []running, time.Time, error) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 	if ix.targets != nil && ix.now().Sub(ix.at) < ix.ttl {
-		return ix.targets, ix.at, nil
+		return ix.targets, ix.running, ix.at, nil
 	}
 	var all []target
 	cont := ""
@@ -120,7 +169,7 @@ func (ix *index) get(ctx context.Context) ([]target, time.Time, error) {
 		}
 		var l list
 		if err := ix.g.Get(ctx, path, &l); err != nil {
-			return nil, time.Time{}, err
+			return nil, nil, time.Time{}, err
 		}
 		for _, r := range l.Items {
 			if hiddenNamespace(r.Metadata.Namespace) || hiddenNamespace(r.Metadata.Labels["trivy-operator.resource.namespace"]) {
@@ -135,8 +184,82 @@ func (ix *index) get(ctx context.Context) ([]target, time.Time, error) {
 	if all == nil {
 		all = []target{}
 	}
-	ix.targets, ix.at = all, ix.now()
-	return all, ix.at, nil
+	run, err := ix.runningContainers(ctx)
+	if err != nil {
+		return nil, nil, time.Time{}, err
+	}
+	ix.targets, ix.running, ix.at = all, run, ix.now()
+	return all, run, ix.at, nil
+}
+
+// runningContainers lists the main containers of running pods, keyed the
+// way reports are: pods owned by Jobs are skipped (short-lived; their
+// CronJob or Job is what gets scanned), and static pods are owned by their
+// Node, so they're named pod/<name> as the scanner names them.
+func (ix *index) runningContainers(ctx context.Context) ([]running, error) {
+	var out []running
+	cont := ""
+	for {
+		path := podsPath + "?limit=200"
+		if cont != "" {
+			path += "&continue=" + url.QueryEscape(cont)
+		}
+		var l podList
+		if err := ix.g.Get(ctx, path, &l); err != nil {
+			return nil, err
+		}
+		for _, p := range l.Items {
+			if p.Status.Phase != "Running" || hiddenNamespace(p.Metadata.Namespace) {
+				continue
+			}
+			kind, name := "Pod", p.Metadata.Name
+			if len(p.Metadata.OwnerReferences) > 0 {
+				o := p.Metadata.OwnerReferences[0]
+				switch o.Kind {
+				case "Job":
+					continue
+				case "Node":
+				default:
+					kind, name = o.Kind, o.Name
+				}
+			}
+			w := workloadName(kind, name)
+			for _, c := range p.Spec.Containers {
+				out = append(out, running{Namespace: p.Metadata.Namespace, Workload: w,
+					Container: clean(c.Name, reToken, 63), Image: clean(c.Image, rePackage, 200)})
+			}
+		}
+		if cont = l.Metadata.Continue; cont == "" {
+			break
+		}
+	}
+	if out == nil {
+		out = []running{}
+	}
+	return out, nil
+}
+
+// notScanned returns the running containers no report covers, deduplicated
+// (a Deployment's replicas are one entry).
+func notScanned(ts []target, run []running) []running {
+	have := map[string]bool{}
+	for _, t := range ts {
+		have[t.Namespace+"/"+t.Workload+"/"+t.Container] = true
+	}
+	seen := map[string]bool{}
+	out := []running{}
+	for _, r := range run {
+		k := r.Namespace + "/" + r.Workload + "/" + r.Container
+		if have[k] || seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Namespace+out[i].Workload+out[i].Container < out[j].Namespace+out[j].Workload+out[j].Container
+	})
+	return out
 }
 
 func compact(r rawReport) target {

@@ -12,7 +12,7 @@ Go standard library only.
 | `ceph-health` | None (no Ceph keyring) | Ceph metrics already in Prometheus |
 | `cert-probe` | None | TLS connections to the ingress controller, for a fixed list of hosts |
 | `host-read` | A ClusterRole with list on pods and PersistentVolumes only; the host's PID namespace, as a non-root user with no capabilities | `/proc` and sysfs on the node |
-| `vuln-read` | A ClusterRole with get/list on the Trivy Operator's `vulnerabilityreports` only | The scanner's reports (D27) |
+| `vuln-read` | A ClusterRole with get/list on the Trivy Operator's `vulnerabilityreports` and on pods (names, owners, containers and images only) | The scanner's reports (D27) |
 
 ## Tools
 
@@ -211,8 +211,8 @@ namespaces are hidden, as in cluster-read.
 
 | Tool | Parameters | Returns |
 |---|---|---|
-| `vulnerability_summary` | `namespace`, `limit` (1–100, default 30) | Per scanned container (namespace, workload, container, image, OS, scan time): CRITICAL, HIGH and MEDIUM counts, how many CRITICAL and HIGH have a fixed version, and how many of those are unrated by the distribution; worst first |
-| `list_vulnerabilities` | `namespace` (required), `workload` (`deployment/web` or `web`), `min_severity` (`critical`, `high`, `medium`; default `high`), `fixable_only`, `limit` (1–200, default 40) | Findings: ID, effective and vendor severity, CVSS score, package, installed version, fixed version (empty when no fix is released), publication date; worst first |
+| `vulnerability_summary` | `namespace`, `limit` (1–100, default 30) | Per scanned container (namespace, workload, container, image, OS, scan time): CRITICAL, HIGH and MEDIUM counts, how many CRITICAL and HIGH have a fixed version, and how many of those are unrated by the distribution; worst first. Also `containers_not_scanned`: running containers with no report |
+| `list_vulnerabilities` | `namespace` (required), `workload` (`deployment/web` or `web`), `min_severity` (`critical`, `high`, `medium`; default `high`), `fixable_only`, `limit` (1–200, default 40) | Findings: ID, effective and vendor severity, CVSS score, package, installed version, fixed version (empty when no fix is released), publication date; worst first. Also `containers_not_scanned` in that namespace or workload |
 | `find_vulnerability` | `id` (CVE, GHSA and similar IDs) | Every scanned container with that vulnerability, with package and versions |
 
 **Effective severity.** The scanner records the distribution's rating; a
@@ -232,7 +232,18 @@ keep only letters, digits and `._+/@:~-` (versions also `, `), with anything
 else replaced by `_`; no sentence survives. A package listed twice for one
 vulnerability counts once.
 
-Reports are read five per API request and kept, compacted, for ten minutes.
+**Coverage.** A running container with no report has unknown
+vulnerabilities, not none: it hasn't been scanned yet, or its report was too
+large to store (the API server and etcd cap object size; an image with
+thousands of findings can exceed it). So vuln-read also lists running pods
+and reports every main container no report covers as
+`containers_not_scanned`; asking `list_vulnerabilities` for such a workload
+says so instead of "not found". Pods owned by Jobs are skipped (their CronJob
+or Job is what gets scanned). Found 2026-11-27: before this, the agent called
+an unscanned, internet-reachable app clean.
+
+Reports and pods are read in pages (five reports, 200 pods per request) and
+kept, compacted, for ten minutes.
 Every result says what the scan covers, and that a finding means a vulnerable
 package is present, not reachable: exposure comes from metrics-query
 `port_forwards` and cluster-read `ingresses`.
