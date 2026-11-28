@@ -141,9 +141,14 @@ kubectl -n familiar-agents rollout restart deploy/hermes
 ```
 
 Changing `config.yaml` or `SOUL.md` restarts it anyway (the ConfigMap name
-changes). A long-running conversation also carries the agent's earlier
-conclusions about what it can see; start a new session (`/reset` in Matrix)
-when its abilities change.
+changes). A restart is not enough for an existing conversation, though: a
+Matrix session keeps the system prompt it started with (so a `SOUL.md`
+change never reaches it) and the agent's earlier conclusions about what it
+can see. After changing `SOUL.md` or adding tools, start a new session
+(`/reset` in Matrix). Scheduled jobs start a fresh session each run, so they
+pick changes up on their own. (Found 2026-11-27: after vuln-read was added,
+a days-old DM session still said it had no vulnerability data and didn't
+look for the new tools.)
 
 ## Afterwards
 
